@@ -64,6 +64,7 @@ async function rest(path, opts = {}) {
     const text = await res.text().catch(() => '');
     if (/tree_full/.test(text)) throw new TreeFullError();
     if (/nickname_taken/.test(text)) throw new NicknameTakenError();
+    if (/bad_owner/.test(text)) throw new Error('没有权限：只有种这棵树的那个浏览器才能删除');
     throw new Error(`请求失败 (${res.status})`);
   }
   return res.status === 204 ? null : res.json();
@@ -103,6 +104,14 @@ const supabaseApi = {
     ]));
     const n = normName(nickname);
     return rows.some((r) => normName(r.nickname) === n) || trees.some((t) => normName(t.owner_name) === n);
+  },
+  // 主人删除朋友的照片（服务器校验主人密钥）
+  async deletePhoto(treeId, photoId, ownerKey) {
+    return retry(() => rest('rpc/delete_photo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_tree_id: treeId, p_photo_id: photoId, p_owner_key: ownerKey }),
+    }));
   },
   async claimTree(id, hash) {
     return rest('rpc/claim_tree', {
@@ -200,6 +209,15 @@ const localApi = {
   async listPhotos(treeId) {
     const t = loadAll()[treeId];
     return t ? t.photos.map(normPhoto) : [];
+  },
+  async deletePhoto(treeId, photoId, ownerKey) {
+    const all = loadAll();
+    const t = all[treeId];
+    if (!t || t.key !== ownerKey) throw new Error('没有权限：只有种这棵树的那个浏览器才能删除');
+    const before = t.photos.length;
+    t.photos = t.photos.filter((p) => !(p.id === photoId && !p.is_owner));
+    saveAll(all);
+    return t.photos.length < before;
   },
   async claimTree() { return false; },
   async nicknameTaken(treeId, nickname) {

@@ -1186,7 +1186,7 @@ const ui = {};
   'deco', 'decoCard', 'decoClose', 'decoTitle', 'decoSlot', 'decoFile', 'decoImg', 'decoNameField', 'decoName', 'decoMsg', 'decoGo',
   'shotView', 'shotImg', 'shotTip', 'shotSave',
   'sheet', 'sheetTitle', 'sheetSub', 'qr', 'shareLink', 'copyBtn', 'nativeShare', 'demoNote',
-  'album', 'albumTitle', 'albumGrid', 'zipBtn', 'lightbox', 'lbPrev', 'lbNext', 'lbImg', 'lbWho', 'lbMsg', 'lbWhen', 'lbDownload',
+  'album', 'albumTitle', 'albumGrid', 'zipBtn', 'lightbox', 'lbPrev', 'lbNext', 'lbImg', 'lbWho', 'lbMsg', 'lbWhen', 'lbDownload', 'lbDelete',
   'loading', 'loadingText', 'toast', 'soundBtn'].forEach((id) => { ui[id] = $(id); });
 
 const on = (el, v = true) => el.classList.toggle('is-on', v);
@@ -1915,6 +1915,7 @@ function openLightbox(i) {
   ui.lbWho.textContent = p.nickname ? `— ${p.nickname}` : '';
   ui.lbMsg.textContent = p.message ? `「${p.message}」` : '';
   ui.lbWhen.textContent = fmtDate(p.createdAt);
+  ui.lbDelete.hidden = !canDelete(p);
   ui.lbPrev.hidden = ui.lbNext.hidden = list.length < 2;
   on(ui.lightbox);
 }
@@ -1922,6 +1923,41 @@ function lbGo(d) { openLightbox(lbIndex + d); }
 ui.lbPrev.addEventListener('click', () => lbGo(-1));
 ui.lbNext.addEventListener('click', () => lbGo(1));
 ui.lbDownload.addEventListener('click', () => downloadPhoto(state.photos[lbIndex], lbIndex));
+
+/* ---------- 主人删除朋友的照片 ---------- */
+// 只有种这棵树的那个浏览器（保存着主人密钥）才能删，而且只能删朋友挂的照片
+function canDelete(p) {
+  return !!(p && state.tree && !p.isOwner && p.id && state.mode !== 'visit' && ownerKeyFor(state.tree.id));
+}
+ui.lbDelete.addEventListener('click', () => {
+  const p = state.photos[lbIndex];
+  if (!canDelete(p)) return;
+  on(ui.lightbox, false);
+  on(ui.album, false);
+  openCta({
+    label: '删除照片',
+    fan: [p.src],
+    title: `删掉 <b>${esc(p.nickname)}</b><br>挂的这张照片？`,
+    sub: '删除后，这棵树和相册里都看不到它了，不能恢复。',
+    primary: ['删除', () => deleteFriendPhoto(p)],
+    secondary: ['算了', dismissCta],
+    noFab: true,
+  });
+});
+async function deleteFriendPhoto(p) {
+  on(ui.cta, false);
+  loading('正在删除');
+  try {
+    const ok = await api.deletePhoto(state.tree.id, p.id, ownerKeyFor(state.tree.id));
+    loading();
+    state.remote = state.remote.filter((r) => r.id !== p.id);
+    removePhoto(p);
+    toast(ok === false ? '这张照片已经不在了' : '已删除');
+  } catch (e) {
+    loading();
+    toast('删除失败：' + (await netReason(e)), 5000);
+  }
+}
 let swipeX = null;
 ui.lightbox.addEventListener('touchstart', (e) => { swipeX = e.touches[0].clientX; }, { passive: true });
 ui.lightbox.addEventListener('touchend', (e) => {

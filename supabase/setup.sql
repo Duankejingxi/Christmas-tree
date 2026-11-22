@@ -113,3 +113,33 @@ grant execute on function public.claim_tree(text, text) to anon, authenticated;
 alter table public.trees add column if not exists from_tree text;
 alter table public.trees drop constraint if exists trees_from_chk;
 alter table public.trees add constraint trees_from_chk check (from_tree is null or char_length(from_tree) between 6 and 16);
+
+-- 9) 主人删除朋友的照片：必须出示主人密钥（只保存在种树的那个浏览器里）
+--    删除后把图片路径记进 photo_trash，方便之后清理存储里的文件
+create table if not exists public.photo_trash (
+  path text primary key,
+  deleted_at timestamptz not null default now()
+);
+alter table public.photo_trash enable row level security;
+revoke all on public.photo_trash from anon, authenticated;
+
+create or replace function public.delete_photo(p_tree_id text, p_photo_id uuid, p_owner_key text) returns boolean
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  key_hash text;
+  v_path text;
+begin
+  select owner_key_hash into key_hash from public.trees where id = p_tree_id;
+  if key_hash is null or p_owner_key is null
+     or encode(extensions.digest(p_owner_key, 'sha256'), 'hex') <> key_hash then
+    raise exception 'bad_owner';
+  end if;
+  delete from public.photos
+   where id = p_photo_id and tree_id = p_tree_id and not is_owner
+   returning path into v_path;
+  if v_path is null then return false; end if;
+  insert into public.photo_trash(path) values (v_path) on conflict do nothing;
+  return true;
+end $$;
+revoke all on function public.delete_photo(text, uuid, text) from public;
+grant execute on function public.delete_photo(text, uuid, text) to anon, authenticated;

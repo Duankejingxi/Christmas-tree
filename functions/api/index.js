@@ -20,6 +20,7 @@ const CST = 8 * 3600000; // 统计按北京时间算天
 const RULES = [
   { re: /^\/rest\/v1\/(trees|photos)(\?.*)?$/, methods: ['GET', 'POST'] },
   { re: /^\/rest\/v1\/rpc\/claim_tree$/, methods: ['POST'] },
+  { re: /^\/rest\/v1\/rpc\/delete_photo$/, methods: ['POST'] },
   { re: /^\/storage\/v1\/object\/photos\/[A-Za-z0-9._\/-]+$/, methods: ['POST'] },
   { re: /^\/storage\/v1\/object\/public\/photos\/[A-Za-z0-9._\/-]+$/, methods: ['GET'] },
 ];
@@ -126,7 +127,7 @@ export async function onRequest({ request }) {
         const r = await fetch(`${UPSTREAM}/rest/v1/trees?select=id&limit=1`, { headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` } });
         status = r.status;
       } catch (e) { /* 连不上 */ }
-      return new Response(JSON.stringify({ version: 'proxy-v4', functions: true, supabase: status === 200, upstream_status: status }), {
+      return new Response(JSON.stringify({ version: 'proxy-v5', functions: true, supabase: status === 200, upstream_status: status }), {
         status: 200, headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store', ...CORS },
       });
     }
