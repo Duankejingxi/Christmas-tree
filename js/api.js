@@ -70,13 +70,16 @@ async function rest(path, opts = {}) {
 }
 
 const supabaseApi = {
-  async createTree(ownerName, theme = 'ice') {
+  // fromTree：这棵树是从哪棵树的分享链接过来的（可为空），后台用它统计传播效果
+  async createTree(ownerName, theme = 'ice', fromTree = null) {
     const id = randomId();
     const ownerKey = randomId(24);
+    const body = { id, owner_name: ownerName, owner_key_hash: await sha256hex(ownerKey), theme };
+    if (fromTree && /^[a-z0-9]{6,16}$/.test(fromTree)) body.from_tree = fromTree;
     const rows = await rest('trees', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
-      body: JSON.stringify({ id, owner_name: ownerName, owner_key_hash: await sha256hex(ownerKey), theme }),
+      body: JSON.stringify(body),
     });
     return { tree: normTree(rows[0]), ownerKey };
   },
@@ -182,7 +185,7 @@ const blobToDataURL = (blob) => new Promise((res, rej) => {
 });
 
 const localApi = {
-  async createTree(ownerName, theme = 'ice') {
+  async createTree(ownerName, theme = 'ice', fromTree = null) {
     const all = loadAll();
     const id = randomId();
     const ownerKey = randomId(24);

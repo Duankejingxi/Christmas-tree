@@ -1325,7 +1325,7 @@ const ownerName = () => (state.tree ? state.tree.ownerName : state.nickname);
 function ensureShared(photos) {
   if (!state.shareP) {
     state.shareP = (async () => {
-      const { tree, ownerKey } = await api.createTree(state.nickname, state.theme);
+      const { tree, ownerKey } = await api.createTree(state.nickname, state.theme, params.get('from'));
       rememberMyTree(tree, ownerKey);
       for (const p of photos) {
         const blob = await compressImage(p.blob);

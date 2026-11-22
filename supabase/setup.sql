@@ -108,3 +108,8 @@ begin
 end $$;
 revoke all on function public.claim_tree(text, text) from public;
 grant execute on function public.claim_tree(text, text) to anon, authenticated;
+
+-- 8) 来源：这棵树是从哪棵树的分享链接过来的（用于后台统计传播效果）
+alter table public.trees add column if not exists from_tree text;
+alter table public.trees drop constraint if exists trees_from_chk;
+alter table public.trees add constraint trees_from_chk check (from_tree is null or char_length(from_tree) between 6 and 16);

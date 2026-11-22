@@ -21,7 +21,7 @@ const MIME = {
   '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.woff2': 'font/woff2', '.png': 'image/png',
   '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
 };
-const ALLOWED = new Set(['index.html', 'css', 'js', 'lib', 'assets']);
+const ALLOWED = new Set(['index.html', 'admin.html', 'css', 'js', 'lib', 'assets']);
 
 http.createServer(async (req, res) => {
   try {

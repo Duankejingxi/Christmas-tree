@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#0b0e16" />
+  <title>圣诞树 · 后台</title>
+  <style>
+    :root { --bg:#0b0e16; --card:#141926; --line:rgba(255,255,255,.08); --ink:#eef0f6; --mute:#8b93a7; --red:#d8493a; --gold:#e8c46a; --green:#5fd39a; --blue:#6aa8ff; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 22px 16px 60px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
+    h1 { margin:0; font-size:20px; letter-spacing:.04em; }
+    h1 small { color:var(--mute); font-weight:400; font-size:12px; margin-left:8px; }
+    button { font:inherit; color:inherit; cursor:pointer; }
+    .btn { background:var(--red); color:#fff; border:0; border-radius:9px; padding:8px 16px; font-weight:600; }
+    .btn.ghost { background:transparent; border:1px solid var(--line); color:var(--ink); }
+    .btn:disabled { opacity:.5; }
+    .gate { max-width:360px; margin:18vh auto 0; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:26px 22px; text-align:center; }
+    .gate h1 { margin-bottom:14px; }
+    .gate input { width:100%; padding:11px 12px; border-radius:9px; border:1px solid var(--line); background:#0d111b; color:var(--ink); font-size:15px; margin-bottom:12px; }
+    .err { color:#ff8a7a; min-height:20px; margin:0 0 8px; font-size:13px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+    .stat .k { color:var(--mute); font-size:12px; }
+    .stat .v { font-size:30px; font-weight:700; line-height:1.2; margin-top:2px; font-variant-numeric:tabular-nums; }
+    .stat .s { color:var(--mute); font-size:12px; }
+    .stat.hl .v { color:var(--gold); }
+    h2 { font-size:14px; margin:26px 0 10px; color:var(--mute); font-weight:600; letter-spacing:.06em; }
+    .chart { display:flex; align-items:flex-end; gap:3px; height:150px; padding-top:8px; }
+    .col { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; min-width:0; }
+    .bar { width:100%; background:var(--red); border-radius:3px 3px 0 0; min-height:2px; position:relative; }
+    .bar.f { background:var(--blue); opacity:.85; margin-top:2px; border-radius:0; }
+    .col span { font-size:9px; color:var(--mute); margin-top:4px; white-space:nowrap; }
+    .col:nth-child(odd) span { visibility:hidden; }
+    .legend { display:flex; gap:14px; color:var(--mute); font-size:12px; margin-bottom:4px; }
+    .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+    th { color:var(--mute); font-weight:500; font-size:12px; }
+    td.n { font-variant-numeric:tabular-nums; }
+    .scroll { overflow-x:auto; }
+    .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px; border:1px solid var(--line); color:var(--mute); }
+    .pill.share { color:var(--green); border-color:rgba(95,211,154,.4); }
+    .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .theme-row { display:flex; align-items:center; gap:10px; margin:6px 0; }
+    .theme-row .t { width:44px; color:var(--mute); }
+    .theme-row .b { flex:1; background:#0d111b; border-radius:5px; height:12px; overflow:hidden; }
+    .theme-row .b i { display:block; height:100%; border-radius:5px; }
+    .msg { max-width:340px; overflow:hidden; text-overflow:ellipsis; }
+    .foot { color:var(--mute); font-size:12px; margin-top:22px; text-align:center; }
+    @media (max-width:720px) { .two { grid-template-columns:1fr; } .stat .v { font-size:26px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="gate" class="gate">
+      <h1>圣诞树 · 后台</h1>
+      <p class="err" id="gateErr"></p>
+      <input id="pw" type="password" placeholder="后台密码" autocomplete="current-password" />
+      <button id="login" class="btn" style="width:100%">进入</button>
+    </div>
+
+    <div id="app" hidden>
+      <header>
+        <h1>圣诞树 · 后台<small id="stamp"></small></h1>
+        <div>
+          <button id="csv" class="btn ghost">导出 CSV</button>
+          <button id="refresh" class="btn">刷新</button>
+          <button id="logout" class="btn ghost">退出</button>
+        </div>
+      </header>
+
+      <div class="grid" id="cards"></div>
+
+      <h2>最近 30 天（北京时间）</h2>
+      <div class="card">
+        <div class="legend"><span><i style="background:var(--red)"></i>新种的树</span><span><i style="background:var(--blue)"></i>朋友挂的照片</span></div>
+        <div class="chart" id="chart"></div>
+      </div>
+
+      <div class="two">
+        <div>
+          <h2>树的颜色</h2>
+          <div class="card" id="themes"></div>
+        </div>
+        <div>
+          <h2>传播情况</h2>
+          <div class="card" id="viral"></div>
+        </div>
+      </div>
+
+      <h2>最活跃的树（朋友挂得最多）</h2>
+      <div class="card scroll"><table id="top"></table></div>
+
+      <h2>最近种的树</h2>
+      <div class="card scroll"><table id="recent"></table></div>
+
+      <h2>最近的朋友照片和留言</h2>
+      <div class="card scroll"><table id="friends"></table></div>
+
+      <p class="foot">数据来自 Supabase，打开页面或点「刷新」时实时统计。访问量请在 EdgeOne 控制台的「可观测」里看。</p>
+    </div>
+  </div>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const THEME = { ice: ['冰雪', '#8cc4ff'], gold: ['暖金', '#f0c46b'], pink: ['樱粉', '#f59ac0'] };
+let data = null;
+
+const fmt = (iso) => {
+  const d = new Date(new Date(iso).getTime() + 8 * 3600e3);
+  return `${d.getUTCMonth() + 1}-${String(d.getUTCDate()).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+};
+const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0) + '%';
+
+async function load(pw) {
+  const r = await fetch('/api?admin=stats', { headers: { 'x-admin-key': pw }, cache: 'no-store' });
+  if (r.status === 401) throw new Error('密码不对');
+  if (!r.ok) throw new Error('读取失败（' + r.status + '），请稍后再试');
+  return r.json();
+}
+
+function render(d) {
+  const t = d.totals;
+  const card = (k, v, s, hl) => `<div class="card stat ${hl ? 'hl' : ''}"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s || '&nbsp;'}</div></div>`;
+  $('cards').innerHTML = [
+    card('种树总数', t.trees, `今天 +${t.today}`, true),
+    card('近 7 天', t.last7, '新种的树'),
+    card('近 30 天', t.last30, '新种的树'),
+    card('朋友挂的照片', t.friendPhotos, `约 ${t.friendPeople} 位不同昵称`),
+    card('有朋友来挂过的树', t.treesWithFriends, `占 ${pct(t.treesWithFriends, t.trees)}`),
+    card('由分享链接带来的树', t.viaShare, `占 ${pct(t.viaShare, t.trees)}`, true),
+    card('主人放的照片', t.ownerPhotos, `平均每棵 ${t.trees ? (t.ownerPhotos / t.trees).toFixed(1) : 0} 张`),
+  ].join('');
+
+  const max = Math.max(1, ...d.daily.map((x) => x.trees + x.friends));
+  $('chart').innerHTML = d.daily.map((x) => {
+    const h1 = (x.trees / max) * 100, h2 = (x.friends / max) * 100;
+    return `<div class="col" title="${x.d}：种树 ${x.trees}，朋友照片 ${x.friends}"><div class="bar f" style="height:${h2}%"></div><div class="bar" style="height:${h1}%"></div><span>${x.d}</span></div>`;
+  }).join('');
+
+  const tm = Math.max(1, t.trees);
+  $('themes').innerHTML = Object.entries(THEME).map(([k, [name, color]]) => {
+    const n = d.themes[k] || 0;
+    return `<div class="theme-row"><span class="t">${name}</span><span class="b"><i style="width:${(n / tm) * 100}%;background:${color}"></i></span><span class="n">${n}</span></div>`;
+  }).join('');
+
+  $('viral').innerHTML = `
+    <div class="theme-row"><span class="t" style="width:auto;flex:1">树主人带来朋友的比例</span><b>${pct(t.treesWithFriends, t.trees)}</b></div>
+    <div class="theme-row"><span class="t" style="width:auto;flex:1">朋友人均挂的树数</span><b>${t.treesWithFriends ? (t.friendPhotos / t.treesWithFriends).toFixed(1) : 0} 张/棵</b></div>
+    <div class="theme-row"><span class="t" style="width:auto;flex:1">通过分享链接种出的新树</span><b>${t.viaShare}</b></div>
+    <div class="s" style="color:var(--mute);font-size:12px;margin-top:8px">「由分享链接带来的树」从后台上线那一刻开始统计，之前的树没有这项数据。</div>`;
+
+  const head = (cols) => `<tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr>`;
+  const tn = (x) => `${esc(x.ownerName)} <span class="pill ${x.fromShare ? 'share' : ''}">${x.fromShare ? '分享来的' : '直接种的'}</span>`;
+  $('top').innerHTML = head(['树主人', '朋友照片', '创建时间', '颜色']) + (d.topTrees.length
+    ? d.topTrees.map((x) => `<tr><td>${tn(x)}</td><td class="n">${x.friends}</td><td>${fmt(x.createdAt)}</td><td>${(THEME[x.theme] || ['-'])[0]}</td></tr>`).join('')
+    : '<tr><td colspan="4" style="color:var(--mute)">还没有朋友来挂过照片</td></tr>');
+  $('recent').innerHTML = head(['时间', '树主人', '主人照片', '朋友照片', '颜色']) + d.recentTrees.map((x) =>
+    `<tr><td>${fmt(x.createdAt)}</td><td>${tn(x)}</td><td class="n">${x.ownerPhotos}</td><td class="n">${x.friends}</td><td>${(THEME[x.theme] || ['-'])[0]}</td></tr>`).join('');
+  $('friends').innerHTML = head(['时间', '朋友', '挂在谁的树上', '留言']) + (d.recentFriends.length
+    ? d.recentFriends.map((x) => `<tr><td>${fmt(x.createdAt)}</td><td>${esc(x.nickname)}</td><td>${esc(x.tree)}</td><td class="msg">${esc(x.message) || '<span style="color:var(--mute)">-</span>'}</td></tr>`).join('')
+    : '<tr><td colspan="4" style="color:var(--mute)">暂无</td></tr>');
+  $('stamp').textContent = '更新于 ' + fmt(d.generatedAt);
+}
+
+function csv() {
+  const rows = [['创建时间(北京)', '树主人', '来源', '颜色', '主人照片', '朋友照片']].concat(
+    data.recentTrees.map((x) => [fmt(x.createdAt), x.ownerName, x.fromShare ? '分享链接' : '直接', (THEME[x.theme] || ['-'])[0], x.ownerPhotos, x.friends]));
+  const text = '﻿' + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'christmas-trees.csv';
+  a.click();
+}
+
+async function enter(pw) {
+  $('gateErr').textContent = '';
+  $('login').disabled = true;
+  try {
+    data = await load(pw);
+    try { sessionStorage.setItem('xmas.admin', pw); } catch (e) { /* ignore */ }
+    $('gate').hidden = true;
+    $('app').hidden = false;
+    render(data);
+  } catch (e) {
+    $('gateErr').textContent = e.message || '读取失败';
+    try { sessionStorage.removeItem('xmas.admin'); } catch (err) { /* ignore */ }
+  }
+  $('login').disabled = false;
+}
+$('login').onclick = () => enter($('pw').value);
+$('pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') enter($('pw').value); });
+$('refresh').onclick = async () => {
+  $('refresh').disabled = true;
+  try { data = await load(sessionStorage.getItem('xmas.admin') || ''); render(data); } catch (e) { alert(e.message); }
+  $('refresh').disabled = false;
+};
+$('logout').onclick = () => { try { sessionStorage.removeItem('xmas.admin'); } catch (e) { /* ignore */ } location.reload(); };
+$('csv').onclick = csv;
+try { const saved = sessionStorage.getItem('xmas.admin'); if (saved) enter(saved); } catch (e) { /* ignore */ }
+</script>
+</body>
+</html>
