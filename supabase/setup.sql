@@ -57,3 +57,7 @@ on conflict (id) do update set public = true, file_size_limit = 3145728,
 drop policy if exists "photos upload" on storage.objects;
 create policy "photos upload" on storage.objects
   for insert to anon, authenticated with check (bucket_id = 'photos');
+
+-- 6) 表权限：只允许读和新增（新项目默认不再自动授权）
+revoke all on public.trees, public.photos from anon, authenticated;
+grant select, insert on public.trees, public.photos to anon, authenticated;
