@@ -29,7 +29,7 @@
 数据存在 Supabase（见下一节）。国内连不上 `supabase.co`，所以网页和 `functions/api/index.js`（EdgeOne 云函数）部署在你自己的域名下：浏览器只访问你的域名，由云函数替它去访问 Supabase。
 
 1. 在 EdgeOne Pages 新建项目，导入这个 GitHub 仓库和分支；框架预设选「其他」，构建命令留空（或 `npm run build`），输出目录 `.`；加速区域选「全球可用区（不含中国大陆）」（用域名不需要备案）
-2. 部署成功后，打开 `https://你的域名/api?p=%2Frest%2Fv1%2Ftrees%3Fselect%3Did%26limit%3D1`，看到 `[...]`（一个 JSON 列表）就说明转发通了
+2. 部署成功后，打开 `https://你的域名/api`，看到 `{"functions":true,"supabase":true,...}` 就说明云函数在运行、并且连得上 Supabase
 3. 绑定自己的域名（域名管理 → 添加域名，按提示加一条 CNAME）
 
 转发函数只放行 `trees`、`photos` 两张表和 `photos` 存储桶的读写，其他路径一律拒绝。

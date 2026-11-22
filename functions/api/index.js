@@ -30,7 +30,19 @@ const err = (status, error) =>
 export async function onRequest({ request }) {
   try {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
-    const p = new URL(request.url).searchParams.get('p') || '';
+    const sp = new URL(request.url).searchParams;
+    if (!sp.has('p')) {
+      // 直接打开 /api：自检。functions=true 说明云函数在运行；supabase=true 说明它能连上数据库
+      let status = -1;
+      try {
+        const r = await fetch(`${UPSTREAM}/rest/v1/trees?select=id&limit=1`, { headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` } });
+        status = r.status;
+      } catch (e) { /* 连不上 */ }
+      return new Response(JSON.stringify({ functions: true, supabase: status === 200, upstream_status: status }), {
+        status: 200, headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store', ...CORS },
+      });
+    }
+    const p = sp.get('p') || '';
     if (!p.startsWith('/') || p.includes('..') || p.length > 2000) return err(400, 'bad_path');
     const rule = RULES.find((r) => r.re.test(p));
     if (!rule || !rule.methods.includes(request.method)) return err(403, 'not_allowed');
