@@ -14,6 +14,7 @@ const SNOW_COUNT = IS_MOBILE ? 700 : 1400;
 const FW_MAX = IS_MOBILE ? 9000 : 16000;
 const TEXT_COUNT = IS_MOBILE ? 1900 : 3400;
 const MAX_PHOTOS = 10;
+let textInfo = null; // 「圣诞快乐」点阵（结尾时生成）
 
 const TREE_H = 10;
 const TREE_BASE = -5;
@@ -382,6 +383,7 @@ class Fireworks {
     for (let i = max - 1; i >= 0; i--) this.free.push(i);
     this.cb = new Map();
     this.liveCount = 0;
+    this.tn = new Float32Array(max * 2); // 文字粒子的归一化坐标（用于重新排版）
 
     const geo = new THREE.BufferGeometry();
     this.aPos = new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage);
@@ -485,7 +487,8 @@ class Fireworks {
     if (i >= 0) this.cb.set(i, onExplode);
   }
 
-  textBurst(x, y, z, targets, colorFn) {
+  // targets: [nx, ny, dz] 归一化坐标；L: { W, cy }
+  textBurst(x, y, z, targets, L, colorFn) {
     for (let k = 0; k < targets.length; k++) {
       const th = Math.random() * Math.PI * 2;
       const ph = Math.acos(rand(-1, 1));
@@ -495,7 +498,16 @@ class Fireworks {
         colorFn(targets[k]), rand(1.1, 1.7), 1e9);
       if (i < 0) break;
       const t = targets[k];
-      this.tgt[i * 3] = t[0]; this.tgt[i * 3 + 1] = t[1]; this.tgt[i * 3 + 2] = t[2];
+      this.tn[i * 2] = t[0]; this.tn[i * 2 + 1] = t[1];
+      this.tgt[i * 3] = t[0] * L.W; this.tgt[i * 3 + 1] = L.cy + t[1] * L.W; this.tgt[i * 3 + 2] = t[2];
+    }
+  }
+
+  relayoutText(L) {
+    for (let i = 0; i < this.max; i++) {
+      if (!this.alive[i] || this.kind[i] !== 1) continue;
+      this.tgt[i * 3] = this.tn[i * 2] * L.W;
+      this.tgt[i * 3 + 1] = L.cy + this.tn[i * 2 + 1] * L.W;
     }
   }
 
@@ -587,8 +599,12 @@ function layout() {
   const aspect = w / h;
   camera.aspect = aspect;
   const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-  const dist = Math.max(7.6 / t, 5.0 / (t * aspect));
-  camera.position.set(0, 0.8, dist);
+  // 宽屏（横屏手机/电脑）时整体上移，给底部标题留出空间
+  const wide = clamp01((aspect - 0.9) / 0.6);
+  const halfH = 7.6 + 0.5 * wide;
+  LOOK.set(0, 0.2 - 0.75 * wide, 0);
+  const dist = Math.max(halfH / t, 5.0 / (t * aspect));
+  camera.position.set(0, LOOK.y + 0.6, dist);
   camera.lookAt(LOOK);
   camera.updateProjectionMatrix();
   view.dist = dist;
@@ -599,9 +615,11 @@ function layout() {
   treeUniforms.uPR.value = renderer.getPixelRatio();
   renderer.setSize(w, h);
   composer.setSize(w, h);
+  if (textInfo) fw.relayoutText(textLayout());
 }
 layout();
 addEventListener('resize', layout);
+addEventListener('orientationchange', () => setTimeout(layout, 300));
 
 /* =====================================================================
  * 照片
@@ -984,8 +1002,10 @@ let nickname = '';
 function askCamera() {
   return new Promise((resolve) => {
     show(ui.ask);
-    ui.camYes.onclick = () => { hide(ui.ask); resolve(true); };
-    ui.camNo.onclick = () => { hide(ui.ask); resolve(false); };
+    ui.title.classList.add('away');
+    const done = (v) => { hide(ui.ask); ui.title.classList.remove('away'); resolve(v); };
+    ui.camYes.onclick = () => done(true);
+    ui.camNo.onclick = () => done(false);
   });
 }
 
@@ -1047,26 +1067,31 @@ async function runShow() {
   startFinale();
 }
 
+// 「圣诞快乐」放在树顶与屏幕顶部之间，随屏幕尺寸自动排版
+const FINALE_SCALE = 0.66, FINALE_Y = -1.15;
+function textLayout() {
+  const aspect = textInfo ? textInfo.aspect : 4;
+  const topY = LOOK.y + view.visH / 2 - Math.max(0.6, view.visH * 0.06);
+  const treeTop = FINALE_Y + (TREE_BASE + TREE_H + 0.6) * FINALE_SCALE;
+  const avail = Math.max(1.2, topY - treeTop);
+  const W = Math.min(view.visW * 0.86, avail * 0.9 * aspect, 16);
+  return { W, cy: treeTop + avail / 2 };
+}
+
 async function startFinale() {
   const gen = generation;
   // 树缩小下移，把上方留给「圣诞快乐」
   const s0 = treeGroup.scale.x, y0 = treeGroup.position.y;
-  const s1 = 0.66, y1 = -1.15;
+  const s1 = FINALE_SCALE, y1 = FINALE_Y;
   tween(1.6, (e) => {
     treeGroup.scale.setScalar(s0 + (s1 - s0) * e);
     treeGroup.position.y = y0 + (y1 - y0) * e;
   });
 
   ui.title.classList.add('finale');
-  // 计算文字所在区域
-  const { pts, aspect } = sampleText('圣诞快乐', TEXT_COUNT);
-  const topY = LOOK.y + view.visH / 2;
-  const treeTop = y1 + (TREE_BASE + TREE_H + 0.6) * s1;
-  const avail = Math.max(1.4, topY - 0.9 - treeTop);
-  const W = Math.min(view.visW * 0.86, avail * 0.92 * aspect, 16);
-  const H = W / aspect;
-  const cy = treeTop + (topY - 0.9 - treeTop) / 2 + 0.15;
-  const targets = pts.map(([x, y]) => [x * W, cy + y * W, rand(-0.12, 0.12)]);
+  textInfo = sampleText('圣诞快乐', TEXT_COUNT);
+  const aspect = textInfo.aspect;
+  const targets = textInfo.pts.map(([x, y]) => [x, y, rand(-0.12, 0.12)]);
   targets.sort((a, b) => a[0] - b[0]);
 
   const gold = new THREE.Color('#ffd166');
@@ -1074,7 +1099,7 @@ async function startFinale() {
   const white = new THREE.Color('#fff6dc');
   const colorFn = (t) => {
     if (Math.random() < 0.12) return white;
-    const k = 0.5 + 0.5 * Math.sin((t[0] / W) * Math.PI * 2.2 + (t[1] - cy) / H);
+    const k = 0.5 + 0.5 * Math.sin(t[0] * Math.PI * 2.2 + t[1] * aspect);
     return gold.clone().lerp(red, k * 0.75);
   };
 
@@ -1084,12 +1109,14 @@ async function startFinale() {
   for (let g = 0; g < groups; g++) {
     const part = targets.slice(g * per, (g + 1) * per);
     if (!part.length) continue;
-    const ex = part.reduce((s, t) => s + t[0], 0) / part.length;
+    const nx = part.reduce((s, t) => s + t[0], 0) / part.length;
     const delay = g * 0.32 + rand(0, 0.1);
     after(delay, () => {
+      const L = textLayout();
+      const ex = nx * L.W;
       const x0 = ex * 0.6 + rand(-0.5, 0.5);
-      fw.rocket(x0, LOOK.y - view.visH / 2 - 0.5, 0, ex, cy + rand(-0.3, 0.3), 1.15, gold, (x, y, z) => {
-        fw.textBurst(x, y, z, part, colorFn);
+      fw.rocket(x0, LOOK.y - view.visH / 2 - 0.5, 0, ex, L.cy + rand(-0.3, 0.3), 1.15, gold, (x, y, z) => {
+        fw.textBurst(x, y, z, part, textLayout(), colorFn);
         fw.burst(x, y, z, { count: IS_MOBILE ? 90 : 160, speed: 8, colors: PALETTES[(g * 2 + 1) % PALETTES.length], size: 1, life: 1.6 });
       });
     });
@@ -1121,6 +1148,7 @@ function resetShow() {
   camQueue = null;
   finale = null;
   fw.clear();
+  textInfo = null;
   forming = false;
   formTime = 0;
   star.target = 0;
@@ -1128,7 +1156,7 @@ function resetShow() {
   treeGroup.scale.setScalar(1);
   treeGroup.position.y = 0;
   treeUniforms.uScatter.value = 0;
-  ui.title.classList.remove('show', 'finale');
+  ui.title.classList.remove('show', 'finale', 'away');
   [ui.end, ui.hint, ui.ask].forEach(hide);
   photos.forEach((p) => {
     p.state = 'idle';
@@ -1201,11 +1229,47 @@ addEventListener('keydown', (e) => {
 /* =====================================================================
  * 渲染循环
  * ===================================================================== */
+// 自适应画质：帧率偏低时自动降低渲染分辨率，保证手机上也流畅
+const perf = { acc: 0, frames: 0, pr: renderer.getPixelRatio(), cooldown: 3 };
+function adaptQuality(rawDt) {
+  if (document.hidden) return;
+  perf.acc += rawDt;
+  perf.frames++;
+  if (perf.acc < 2) return;
+  const fps = perf.frames / perf.acc;
+  perf.acc = 0;
+  perf.frames = 0;
+  if (perf.cooldown > 0) { perf.cooldown--; return; }
+  const minPR = IS_MOBILE ? 0.75 : 1;
+  if (fps < 42 && perf.pr > minPR) {
+    perf.pr = Math.max(minPR, perf.pr - 0.25);
+    renderer.setPixelRatio(perf.pr);
+    layout();
+    perf.cooldown = 1;
+  }
+}
+
+// 「Merry Christmas」标题始终贴在树底下方
+const titleV = new THREE.Vector3();
+let titleTop = -1;
+function placeTitle() {
+  titleV.set(0, treeGroup.position.y + (TREE_BASE - 0.55) * treeGroup.scale.y - 0.15, 0).project(camera);
+  const y = Math.round((0.5 - titleV.y * 0.5) * innerHeight);
+  if (y !== titleTop) {
+    titleTop = y;
+    ui.title.style.top = y + 'px';
+  }
+}
+
+const TIME_SCALE = Math.min(8, Math.max(0.1, +new URLSearchParams(location.search).get('speed') || 1));
 let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const rawDt = Math.max(0, (now - last) / 1000);
+  const dt = Math.min(0.05, rawDt) * TIME_SCALE;
   last = now;
+  adaptQuality(Math.min(rawDt, 0.25));
+  placeTitle();
   clock += dt;
 
   runTimers(dt);
