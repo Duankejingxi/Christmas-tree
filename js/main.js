@@ -2077,6 +2077,18 @@ function confirmRedo() {
 }
 
 /* ---------- 做好之后继续加照片（主人） ---------- */
+// 主人在这个浏览器里已经放大看过的朋友照片（避免每次回来都重新播放一遍）
+const seenKey = (id) => `xmas.seen.${id}`;
+function seenSet(id) {
+  try { return new Set(JSON.parse(localStorage.getItem(seenKey(id))) || []); } catch (e) { return new Set(); }
+}
+function markSeen(id, photoId) {
+  try {
+    const set = seenSet(id);
+    set.add(photoId);
+    localStorage.setItem(seenKey(id), JSON.stringify([...set].slice(-500)));
+  } catch (e) { /* ignore */ }
+}
 function ownerKeyFor(id) {
   const t = myTrees().find((x) => x.id === id);
   return t && t.key;
@@ -2285,6 +2297,7 @@ async function runShow({ featured, prehung }) {
         on(ui.hint);
       }
       await showPhoto(featured[i]);
+      if (state.mode === 'owner' && state.tree && featured[i].id && !featured[i].isOwner) markSeen(state.tree.id, featured[i].id);
       await sleep(0.25);
     }
     on(ui.hint, false);
@@ -2728,11 +2741,12 @@ async function boot() {
           // 朋友打开：先挂主人的照片，再挂最新的朋友照片，其余的随着转动轮换
           start({ list: [...owners, ...newest], featured: [], seed: tree.id });
         } else {
-          // 主人回来：最新的朋友照片（最多 10 张）逐张放大，其余轮换
-          const recent = newest.slice(0, MAX_ON_TREE).reverse();
-          start(recent.length
-            ? { list: [...recent, ...owners, ...newest.slice(MAX_ON_TREE)], featured: recent, seed: tree.id }
-            : { list: owners, featured: owners, seed: tree.id });
+          // 主人回来：只把「还没看过」的朋友照片（最多 10 张）逐张放大，看过的直接挂在树上
+          const seen = seenSet(tree.id);
+          const fresh = newest.filter((p) => !seen.has(p.id));
+          const old = newest.filter((p) => seen.has(p.id));
+          const showNow = fresh.slice(0, MAX_ON_TREE).reverse();
+          start({ list: [...showNow, ...owners, ...fresh.slice(MAX_ON_TREE), ...old], featured: showNow, seed: tree.id });
         }
         return;
       }
