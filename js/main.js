@@ -454,12 +454,12 @@ function ambientPoints(count, fill, vertexBody, fragBody) {
   return pts;
 }
 const BOKEH_COLORS = C(['#ffb3c6', '#ffd6a5', '#a0c4ff', '#cdb4db', '#9bf6ff', '#fdffb6', '#ffc8dd']);
-const bokeh = ambientPoints(IS_MOBILE ? 24 : 38, (i, pos, a, c) => {
+const bokeh = ambientPoints(IS_MOBILE ? 12 : 20, (i, pos, a, c) => {
   // 避开画面中央，让光斑留在四周
   let x = rand(-44, 44);
   if (Math.abs(x) < 14) x = (x < 0 ? -1 : 1) * rand(14, 44);
   pos.set([x, rand(-18, 22), rand(-46, -22)], i * 3);
-  a.set([rand(60, 150), Math.random() * TAU, rand(0.018, 0.055), rand(0.3, 1)], i * 4);
+  a.set([rand(60, 150), Math.random() * TAU, rand(0.012, 0.035), rand(0.3, 1)], i * 4);
   const col = BOKEH_COLORS[(Math.random() * BOKEH_COLORS.length) | 0];
   c.set([col.r, col.g, col.b], i * 3);
 }, `
@@ -844,7 +844,7 @@ function runTimers(dt) {
  * UI 基础
  * ===================================================================== */
 const ui = {};
-['landing', 'eyebrow', 'lead', 'form', 'nickField', 'nick', 'nickTip', 'themes', 'slots', 'addSlot', 'file', 'note', 'go', 'goText', 'alt',
+['landing', 'eyebrow', 'headline', 'lead', 'form', 'nickField', 'nick', 'nickTip', 'themes', 'slots', 'addSlot', 'file', 'note', 'go', 'goText', 'alt',
   'caption', 'hint', 'swipeTip', 'dock', 'fab', 'fabText',
   'cta', 'ctaCard', 'ctaClose', 'ctaFan', 'ctaScript', 'ctaTitle', 'ctaSub', 'ctaPrimary', 'ctaSecondary', 'ctaFoot',
   'deco', 'decoCard', 'decoClose', 'decoTitle', 'decoSlot', 'decoFile', 'decoImg', 'decoNameField', 'decoName', 'decoMsg', 'decoGo',
@@ -917,7 +917,7 @@ function renderSlots() {
   ui.addSlot.classList.toggle('full', state.pending.length >= MAX_LOCAL);
   ui.note.innerHTML = state.pending.length
     ? `已放入 <b>${state.pending.length}</b> 张 · 最多 ${MAX_LOCAL} 张`
-    : '放几张照片进去 · 可选 · 最多 10 张';
+    : '挂在树上的照片 · 可以不放 · 最多 10 张';
 }
 ui.file.addEventListener('change', () => {
   const files = [...ui.file.files].filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(f.name));
@@ -934,14 +934,17 @@ function savedNick() {
 function setLanding() {
   ui.eyebrow.textContent = countdownText();
   const fromFriend = params.has('from');
-  ui.lead.textContent = fromFriend ? '轮到你了 · 做一棵你自己的圣诞树' : '点亮一棵属于你的圣诞树';
+  if (fromFriend) {
+    ui.headline.innerHTML = '轮到你了<br />种一棵自己的树';
+    ui.lead.innerHTML = '种好后寄给朋友，请他们也挂上一张照片。';
+  }
   if (!ui.nick.value) ui.nick.value = savedNick();
   ui.nickTip.hidden = !(fromFriend && ui.nick.value);
   ui.alt.textContent = '';
   ui.alt.onclick = null;
   const last = myTrees()[0];
   if (last && !fromFriend) {
-    ui.alt.textContent = '打开我上次做的圣诞树 →';
+    ui.alt.textContent = '打开我上次种的树';
     ui.alt.onclick = () => { location.href = shareLinkFor(last.id); };
   }
   renderSlots();
@@ -956,7 +959,7 @@ function requireName(input, field) {
     void field.offsetWidth;
     field.classList.add('shake');
     input.focus();
-    toast('先写下你的昵称吧');
+    toast('先写下你的名字');
     return null;
   }
   try { localStorage.setItem('xmas.nick', v); } catch (e) { /* ignore */ }
@@ -1036,10 +1039,10 @@ async function inviteFriends() {
     return;
   }
   if (navigator.share && IS_MOBILE && !IS_WECHAT) {
-    navigator.share({ title: 'Merry Christmas', text: `来帮 ${ownerName()} 装饰圣诞树吧 🎄`, url: link }).catch(() => {});
+    navigator.share({ title: `${ownerName()} 寄给你一棵圣诞树`, text: '来挂一张照片吧', url: link }).catch(() => {});
     return;
   }
-  if (await copyText(link)) toast('链接已复制，快发给朋友吧 ✨', 3200);
+  if (await copyText(link)) toast('链接已复制，发给朋友吧', 3200);
   else openSheet(link, true);
 }
 
@@ -1054,9 +1057,8 @@ function setFan(srcs) {
   ui.ctaFan.classList.toggle('has', list.length > 0);
   list.forEach((src, i) => {
     const s = document.createElement('span');
-    const off = (i - (list.length - 1) / 2);
-    s.style.setProperty('--x', `${off * 46}px`);
-    s.style.setProperty('--r', `${off * 9}deg`);
+    s.style.setProperty('--l', `${i * 58}px`);
+    s.style.setProperty('--r', `${[-4, 3, -2][i]}deg`);
     s.innerHTML = '<i></i>';
     s.querySelector('i').style.backgroundImage = `url("${src}")`;
     ui.ctaFan.appendChild(s);
@@ -1068,6 +1070,9 @@ function openCta(cfg) {
   fabCfg = cfg;
   hideFab();
   setFan(cfg.fan || []);
+  const d = new Date();
+  $('pmDate').textContent = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+  ui.ctaScript.textContent = cfg.label || '圣诞明信片';
   ui.ctaTitle.innerHTML = cfg.title;
   ui.ctaSub.innerHTML = cfg.sub || '';
   ui.ctaPrimary.textContent = cfg.primary[0];
@@ -1170,34 +1175,36 @@ function finaleModal() {
     const n = friendCount();
     if (done || full) {
       openCta({
+        label: `来自 ${owner}`,
         fan: photoSrcs(() => true),
-        title: done ? `谢谢你帮 <b>${owner}</b> 装饰！` : `<b>${owner}</b> 的树已经挂满啦`,
-        sub: '现在轮到你了，做一棵你自己的圣诞树吧',
-        primary: ['制作我的圣诞树', goMine],
-        secondary: ['保存 TA 的圣诞树', saveShot],
-        fab: '做我的树',
+        title: done ? `你的照片已经挂在<br><b>${owner}</b> 的树上了` : `<b>${owner}</b> 的树<br>已经挂满了`,
+        sub: '轮到你了。种一棵自己的，再寄给朋友。',
+        primary: ['种我自己的树', goMine],
+        secondary: ['存到相册', saveShot],
+        fab: '种我的树',
       });
     } else {
       openCta({
+        label: `来自 ${owner}`,
         fan: photoSrcs((p) => p.isOwner),
-        title: `<b>${owner}</b> 邀请你<br>来装饰 TA 的圣诞树`,
-        sub: n ? `已经有 ${n} 位朋友挂上了照片` : '你会是第一个来装饰的朋友',
-        primary: ['制作我的圣诞树', openDeco],
-        secondary: ['保存 TA 的圣诞树', saveShot],
-        foot: '制作前需要先帮 TA 挂一张照片',
-        fab: '做我的树',
+        title: `<b>${owner}</b> 寄给你<br>一棵圣诞树`,
+        sub: n ? `树上已经挂了 ${n} 位朋友的照片。挂上你的一张，就能种一棵自己的。` : '你是第一个收到的人。挂上你的一张照片，就能种一棵自己的。',
+        primary: ['挂一张照片，种我的树', openDeco],
+        secondary: ['存到相册', saveShot],
+        fab: '种我的树',
       });
     }
   } else {
     const n = friendCount();
     openCta({
+      label: '你的树',
       fan: photoSrcs(() => true),
-      title: state.mode === 'owner' && n ? `已经有 <b>${n}</b> 位朋友<br>帮你装饰了圣诞树` : '你的圣诞树做好啦',
-      sub: `把链接发给朋友，让他们来帮你装饰<br>每人挂一张照片 · 最多 ${MAX_FRIENDS} 位`,
-      primary: ['复制链接 · 邀请朋友', inviteFriends],
-      secondary: ['保存我的圣诞树', saveShot],
-      foot: '<button class="text-link" id="qrLink">显示二维码</button>',
-      fab: '邀请朋友',
+      title: state.mode === 'owner' && n ? `已经有 <b>${n} 位朋友</b><br>来挂过照片了` : '树种好了<br>寄给朋友吧',
+      sub: `朋友打开链接，可以在你的树上挂一张照片、留一句话。最多 ${MAX_FRIENDS} 位。`,
+      primary: ['复制链接，寄出去', inviteFriends],
+      secondary: ['存一张到相册', saveShot],
+      foot: '也可以 <button class="text-link" id="qrLink">用二维码寄</button>',
+      fab: '寄出去',
     });
     $('qrLink').onclick = async () => {
       try { openSheet(await myLink(), true); } catch (e) { toast('分享链接生成失败'); }
@@ -1227,7 +1234,7 @@ function openDeco() {
   on(ui.cta, false);
   hideFab();
   fabCfg = fabCfg || { fab: '做我的树' };
-  ui.decoTitle.innerHTML = `先帮 <b>${esc(state.tree.ownerName)}</b><br>装饰 TA 的圣诞树`;
+  ui.decoTitle.innerHTML = `挂一张照片到<br><b>${esc(state.tree.ownerName)}</b> 的树上`;
   if (!ui.decoName.value) ui.decoName.value = savedNick();
   ui.decoCard.style.opacity = '';
   on(ui.deco);
@@ -1246,7 +1253,7 @@ ui.decoFile.addEventListener('change', () => {
 });
 ui.decoGo.addEventListener('click', () => {
   if (!deco.file) {
-    toast('先选一张照片挂到 TA 的树上');
+    toast('先选一张照片');
     ui.decoSlot.animate([{ transform: 'rotate(-2deg) scale(1)' }, { transform: 'rotate(-2deg) scale(1.08)' }, { transform: 'rotate(-2deg) scale(1)' }], { duration: 400 });
     return;
   }
@@ -1287,12 +1294,13 @@ async function runDecorate(name, message, file, url) {
   if (r.ok) {
     markDecorated(state.tree.id);
     openCta({
+      label: '已寄达',
       fan: [url],
-      title: '挂好啦，谢谢你！',
-      sub: `你的照片已经挂在 ${esc(state.tree.ownerName)} 的树上<br>现在，做一棵你自己的圣诞树吧`,
-      primary: ['开始制作我的圣诞树 →', goMine],
-      secondary: ['保存 TA 的圣诞树', saveShot],
-      fab: '做我的树',
+      title: '挂好了，谢谢你',
+      sub: `${esc(state.tree.ownerName)} 打开就能看到你的照片${message ? '和留言' : ''}。<br>现在，种一棵你自己的树吧。`,
+      primary: ['种我自己的树', goMine],
+      secondary: ['存一张 TA 的树', saveShot],
+      fab: '种我的树',
     });
   } else if (r.full) {
     toast('这棵树刚刚被挂满了，照片没能保存', 4000);
@@ -1319,7 +1327,7 @@ async function saveShot() {
     shotBlob = blob;
     if (ui.shotImg.src) URL.revokeObjectURL(ui.shotImg.src);
     ui.shotImg.src = URL.createObjectURL(blob);
-    ui.shotTip.textContent = IS_MOBILE ? '长按图片，保存到相册' : '右键图片另存，或点下面的按钮';
+    ui.shotTip.textContent = IS_MOBILE ? '长按图片，存到相册' : '右键图片另存，或点下面的按钮';
     ui.shotSave.hidden = IS_WECHAT;
     on(ui.shotView);
   } catch (e) {
@@ -1352,8 +1360,8 @@ function loadScript(src) {
 }
 async function openSheet(link, mine) {
   ui.shareLink.value = link;
-  ui.sheetTitle.textContent = mine ? '邀请朋友来装饰你的树' : '把这棵树分享给朋友';
-  ui.sheetSub.textContent = `每位朋友可以挂上一张照片 · 最多 ${MAX_FRIENDS} 位`;
+  ui.sheetTitle.textContent = '把树寄给朋友';
+  ui.sheetSub.textContent = mine ? `扫码或复制链接，朋友就能来挂照片（最多 ${MAX_FRIENDS} 位）` : '扫码或复制链接，转给更多朋友';
   ui.demoNote.hidden = cloudEnabled;
   ui.nativeShare.hidden = !navigator.share;
   ui.qr.innerHTML = '';
@@ -1508,10 +1516,11 @@ function setupDock() {
 /* ---------- 重新做一棵 ---------- */
 function confirmRedo() {
   openCta({
-    title: '要重新做一棵圣诞树吗？',
-    sub: '现在这棵树和朋友们挂的照片都会保留<br>之后可以在首页「打开我上次做的圣诞树」',
-    primary: ['重新做一棵', () => { location.href = BASE_URL; }],
-    secondary: ['再看看这棵', dismissCta],
+    label: '重新种',
+    title: '再种一棵？',
+    sub: '这棵树和朋友们的照片都会留着，首页随时能找回来。',
+    primary: ['重新种一棵', () => { location.href = BASE_URL; }],
+    secondary: ['算了，再看看', dismissCta],
     noFab: true,
   });
 }
@@ -1542,7 +1551,7 @@ async function addOwnerPhotos(files) {
     return;
   }
   if (!key) {
-    toast('这棵树是旧版本做的，不能再加照片了，点「重新做」做一棵新的吧', 4500);
+    toast('这棵树是旧版本种的，不能再加照片了，点「重新种」种一棵新的吧', 4500);
     return;
   }
   const name = ownerName();
@@ -1581,7 +1590,7 @@ async function addOwnerPhotos(files) {
   const res = await Promise.allSettled(uploads);
   if (gen !== generation) return;
   const bad = res.filter((r) => r.status === 'rejected');
-  if (!bad.length) toast(`已加上 ${added.length} 张照片，朋友打开也能看到 ✨`);
+  if (!bad.length) toast('加好了，朋友打开就能看到');
   else if (bad.some((r) => r.reason instanceof TreeFullError)) toast('你自己最多放 10 张照片，多出的没有保存');
   else toast(`有 ${bad.length} 张没能保存，请检查网络后再试`);
 }

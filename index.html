@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#03050b" />
   <title>Merry Christmas · 圣诞树</title>
   <meta name="description" content="点亮一棵会发光的粒子圣诞树，挂上照片，邀请朋友一起来装饰。" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✨</text></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='14' y='10' width='72' height='80' rx='6' fill='%23c53a2c'/><path d='M50 26 66 50h-9l12 18H31l12-18h-9z' fill='%23f4ecdc'/></svg>" />
   <link rel="stylesheet" href="./css/style.css" />
   <script type="importmap">
     { "imports": { "three": "./lib/three/three.module.min.js", "three/addons/": "./lib/three/addons/" } }
@@ -14,7 +14,6 @@
 </head>
 <body class="booting">
   <canvas id="scene"></canvas>
-  <div class="aurora"><i></i><i></i><i></i></div>
   <div class="vignette"></div>
 
   <!-- 左上角：声音 -->
@@ -32,16 +31,17 @@
 
   <!-- 首页：做自己的树 -->
   <main id="landing" class="landing">
-    <p class="eyebrow" id="eyebrow"></p>
-    <h1 class="script">Merry Christmas</h1>
-    <p class="lead" id="lead">点亮一棵属于你的圣诞树</p>
+    <p class="kicker"><span>MERRY CHRISTMAS</span><span id="eyebrow"></span></p>
+    <h1 class="headline" id="headline">给今年的圣诞<br />种一棵会发光的树</h1>
+    <p class="lead" id="lead">放几张照片进去，它会一点点亮起来。<br />种好后寄给朋友，请他们也挂上一张。</p>
 
-    <div class="form" id="form">
+    <div class="ticket form" id="form">
       <label class="line-field" id="nickField">
-        <input id="nick" type="text" maxlength="12" placeholder="你的名字" autocomplete="off" enterkeyhint="go" />
+        <input id="nick" type="text" maxlength="12" placeholder="比如：小雪" autocomplete="off" enterkeyhint="go" />
         <span class="line"></span>
       </label>
-      <p class="field-tip" id="nickTip" hidden>已经帮你填好了，可以修改</p>
+      <p class="field-tip" id="nickTip" hidden>沿用了你刚才的名字，可以改</p>
+      <div class="perf"></div>
 
       <div class="themes" id="themes" role="radiogroup" aria-label="颜色">
         <button class="theme on" data-theme="ice" role="radio"><i></i><span>冰雪</span></button>
@@ -55,25 +55,25 @@
           <svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>
         </label>
       </div>
-      <p class="note" id="note">放几张照片进去 · 可选 · 最多 10 张</p>
+      <p class="note" id="note">挂在树上的照片 · 可以不放 · 最多 10 张</p>
 
-      <button id="go" class="btn btn-primary btn-lg"><span id="goText">点亮我的圣诞树</span></button>
+      <button id="go" class="btn btn-primary btn-lg"><span id="goText">种下这棵树</span><i class="arr"></i></button>
       <button id="alt" class="text-link"></button>
     </div>
   </main>
 
   <div id="caption" class="caption"></div>
   <div id="hint" class="hint"></div>
-  <div id="swipeTip" class="swipe-tip">在字上划一下 ✦ 上下拖动树试试</div>
+  <div id="swipeTip" class="swipe-tip">划一下祝福语，或者上下拖动这棵树</div>
 
   <!-- 结束后的小工具栏 -->
   <nav id="dock" class="dock">
-    <button data-act="replay"><svg viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v3.6h3.6"/></svg><span>再看一遍</span></button>
-    <button data-act="album"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.2"/><rect x="13" y="4" width="7" height="7" rx="1.2"/><rect x="4" y="13" width="7" height="7" rx="1.2"/><rect x="13" y="13" width="7" height="7" rx="1.2"/></svg><span>照片</span></button>
+    <button data-act="replay"><svg viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v3.6h3.6"/></svg><span>重播</span></button>
+    <button data-act="album"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.2"/><rect x="13" y="4" width="7" height="7" rx="1.2"/><rect x="4" y="13" width="7" height="7" rx="1.2"/><rect x="13" y="13" width="7" height="7" rx="1.2"/></svg><span>相册</span></button>
     <button data-act="add" data-for="owner"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M12 9v6M9 12h6"/></svg><span>加照片</span></button>
-    <button data-act="save"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></svg><span>保存图片</span></button>
-    <button data-act="redo" data-for="owner"><svg viewBox="0 0 24 24"><path d="M12 3.5 17 11h-3l4 6H6l4-6H7z"/><path d="M12 17v3.5"/></svg><span>重新做</span></button>
-    <button data-act="mine" data-for="visit"><svg viewBox="0 0 24 24"><path d="M12 3.5 17 11h-3l4 6H6l4-6H7z"/><path d="M12 17v3.5"/></svg><span>做我的树</span></button>
+    <button data-act="save"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></svg><span>存图</span></button>
+    <button data-act="redo" data-for="owner"><svg viewBox="0 0 24 24"><path d="M12 3.5 17 11h-3l4 6H6l4-6H7z"/><path d="M12 17v3.5"/></svg><span>重新种</span></button>
+    <button data-act="mine" data-for="visit"><svg viewBox="0 0 24 24"><path d="M12 3.5 17 11h-3l4 6H6l4-6H7z"/><path d="M12 17v3.5"/></svg><span>种我的树</span></button>
     <input id="addFile" type="file" accept="image/*" multiple hidden />
   </nav>
 
@@ -81,8 +81,10 @@
   <div id="cta" class="overlay modal-wrap">
     <div class="modal" id="ctaCard">
       <button class="modal-x" id="ctaClose" aria-label="收起"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <div class="stamp"><svg viewBox="0 0 24 24"><path d="M12 3.5 17 11h-3l4 6H6l4-6H7z"/><path d="M12 17v3.5"/></svg><b>2026</b></div>
+      <div class="postmark"><span id="pmDate"></span><span>北极邮局</span></div>
       <div class="fan" id="ctaFan"></div>
-      <p class="script small" id="ctaScript">Merry Christmas</p>
+      <p class="pc-label" id="ctaScript">圣诞明信片</p>
       <h2 class="modal-title" id="ctaTitle"></h2>
       <p class="modal-sub" id="ctaSub"></p>
       <div class="modal-actions">
@@ -97,9 +99,9 @@
   <div id="deco" class="overlay modal-wrap">
     <div class="modal" id="decoCard">
       <button class="modal-x" id="decoClose" aria-label="收起"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-      <p class="step"><b>1</b> 帮 TA 装饰 <i></i> <span>2</span> 做你自己的树</p>
+      <p class="step"><b>1</b> 挂一张照片 <i></i> <span>2</span> 种你自己的树</p>
       <h2 class="modal-title" id="decoTitle"></h2>
-      <p class="modal-sub">挂上一张照片，就能制作你自己的圣诞树</p>
+      <p class="modal-sub">挂好后，就能种一棵你自己的树。</p>
       <label class="slot add deco-slot" id="decoSlot">
         <input id="decoFile" type="file" accept="image/*" hidden />
         <img id="decoImg" alt="" hidden />
@@ -107,16 +109,16 @@
         <em>选一张照片</em>
       </label>
       <label class="line-field" id="decoNameField">
-        <input id="decoName" type="text" maxlength="12" placeholder="你的昵称 · 会写在照片上" autocomplete="off" />
+        <input id="decoName" type="text" maxlength="12" placeholder="你的名字（会写在照片下面）" autocomplete="off" />
         <span class="line"></span>
       </label>
-      <p class="field-tip">这个昵称也会用在你自己的圣诞树上</p>
+      <p class="field-tip">之后种你自己的树，也用这个名字</p>
       <label class="line-field">
-        <input id="decoMsg" type="text" maxlength="30" placeholder="写一句祝福 · 可选" autocomplete="off" />
+        <input id="decoMsg" type="text" maxlength="30" placeholder="想对 TA 说的一句话（可不写）" autocomplete="off" />
         <span class="line"></span>
       </label>
       <div class="modal-actions">
-        <button id="decoGo" class="btn btn-primary btn-lg">挂上去，开始做我的树</button>
+        <button id="decoGo" class="btn btn-primary btn-lg">挂上去<i class="arr"></i></button>
       </div>
     </div>
   </div>
@@ -126,15 +128,14 @@
     <button class="close" data-close aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     <img id="shotImg" alt="圣诞树图片" />
     <p class="shot-tip" id="shotTip">长按图片，保存到相册</p>
-    <button id="shotSave" class="btn btn-primary">保存图片</button>
+    <button id="shotSave" class="btn btn-primary">存到相册</button>
   </div>
 
   <!-- 分享（链接 + 二维码） -->
   <div id="sheet" class="overlay">
     <div class="sheet">
       <button class="close" data-close aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-      <h2 class="script small">Share the joy</h2>
-      <p class="sheet-title" id="sheetTitle">邀请朋友来装饰你的树</p>
+      <p class="sheet-title" id="sheetTitle">把树寄给朋友</p>
       <p class="sheet-sub" id="sheetSub">每位朋友可以挂上一张照片，最多 10 位</p>
       <div class="qr" id="qr"></div>
       <div class="link-row">
@@ -152,7 +153,7 @@
   <div id="album" class="overlay album">
     <div class="album-head">
       <div>
-        <h2 class="script small">Memories</h2>
+        <h2 class="album-h">相册</h2>
         <p id="albumTitle"></p>
       </div>
       <div class="album-actions">
