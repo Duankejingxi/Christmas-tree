@@ -22,13 +22,41 @@ export class NicknameTakenError extends Error {
   constructor() { super('该昵称已被注册'); this.name = 'NicknameTakenError'; }
 }
 const normName = (s) => String(s || '').trim().toLowerCase();
+export class NetworkError extends Error {
+  constructor(msg = '网络连接失败') { super(msg); this.name = 'NetworkError'; }
+}
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// 带超时的 fetch：跨境网络偶尔会卡住不返回，超时后算作网络错误
+async function fetchT(url, opts = {}, ms = 15000) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctl.signal });
+  } catch (e) {
+    throw new NetworkError(e && e.name === 'AbortError' ? '网络太慢，请求超时' : '网络连接失败');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+// 只对网络错误重试（服务器明确拒绝的不重试）
+async function retry(fn, tries = 3) {
+  let err;
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(i); } catch (e) {
+      err = e;
+      if (!(e instanceof NetworkError)) throw e;
+      if (i < tries - 1) await wait(700 * Math.pow(2, i));
+    }
+  }
+  throw err;
+}
 
 /* ------------------------------ Supabase ------------------------------ */
 const base = SUPABASE_URL.replace(/\/+$/, '');
 const headers = (extra = {}) => ({ apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, ...extra });
 
 async function rest(path, opts = {}) {
-  const res = await fetch(`${base}/rest/v1/${path}`, { ...opts, headers: headers(opts.headers) });
+  const res = await fetchT(`${base}/rest/v1/${path}`, { ...opts, headers: headers(opts.headers) }, opts.timeout || 15000);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     if (/tree_full/.test(text)) throw new TreeFullError();
@@ -49,21 +77,24 @@ const supabaseApi = {
     });
     return { tree: normTree(rows[0]), ownerKey };
   },
+  async ping() {
+    try { await fetchT(`${base}/rest/v1/trees?select=id&limit=1`, { headers: headers() }, 6000); return true; } catch (e) { return false; }
+  },
   async getTree(id) {
-    const rows = await rest(`trees?id=eq.${encodeURIComponent(id)}&select=id,owner_name,created_at,theme`);
+    const rows = await retry(() => rest(`trees?id=eq.${encodeURIComponent(id)}&select=id,owner_name,created_at,theme`));
     return rows[0] ? normTree(rows[0]) : null;
   },
   async listPhotos(treeId) {
-    const rows = await rest(`photos?tree_id=eq.${encodeURIComponent(treeId)}&select=id,nickname,path,created_at,is_owner,message&order=created_at.asc`);
+    const rows = await retry(() => rest(`photos?tree_id=eq.${encodeURIComponent(treeId)}&select=id,nickname,path,created_at,is_owner,message&order=created_at.asc`));
     return rows.map(normPhoto);
   },
   // opts: { ownerKey?, message? }
   // 这个昵称在这棵树上是否已被朋友或主人使用
   async nicknameTaken(treeId, nickname) {
-    const [rows, trees] = await Promise.all([
+    const [rows, trees] = await retry(() => Promise.all([
       rest(`photos?tree_id=eq.${encodeURIComponent(treeId)}&is_owner=eq.false&select=nickname`),
       rest(`trees?id=eq.${encodeURIComponent(treeId)}&select=owner_name`),
-    ]);
+    ]));
     const n = normName(nickname);
     return rows.some((r) => normName(r.nickname) === n) || trees.some((t) => normName(t.owner_name) === n);
   },
@@ -75,21 +106,47 @@ const supabaseApi = {
     });
   },
   async addPhoto(treeId, nickname, blob, opts = {}) {
-    const path = `${treeId}/${Date.now()}-${randomId(6)}.jpg`;
-    const up = await fetch(`${base}/storage/v1/object/photos/${path}`, {
-      method: 'POST',
-      headers: headers({ 'Content-Type': 'image/jpeg', 'x-upsert': 'false' }),
-      body: blob,
-    });
-    if (!up.ok) throw new Error(`照片上传失败 (${up.status})`);
+    // 同一次上传重试时沿用同一个路径，避免重复
+    const path = opts.path || `${treeId}/${Date.now()}-${randomId(6)}.jpg`;
+    opts.path = path;
+    if (!opts.uploaded) {
+      await retry(async () => {
+        const up = await fetchT(`${base}/storage/v1/object/photos/${path}`, {
+          method: 'POST',
+          headers: headers({ 'Content-Type': 'image/jpeg', 'x-upsert': 'false' }),
+          body: blob,
+        }, 45000);
+        if (up.ok) return;
+        const t = await up.text().catch(() => '');
+        if (/already exists|Duplicate/i.test(t)) return; // 上一次其实已经传上去了
+        if (up.status >= 500) throw new NetworkError('服务器繁忙');
+        throw new Error(`照片上传失败 (${up.status})`);
+      });
+      opts.uploaded = true;
+    }
     const body = { tree_id: treeId, nickname, path, is_owner: !!opts.ownerKey, message: opts.message || null };
     if (opts.ownerKey) body.owner_key = opts.ownerKey;
-    const rows = await rest('photos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
-      body: JSON.stringify(body),
+    const findMine = async () => {
+      const got = await rest(`photos?path=eq.${encodeURIComponent(path)}&select=id,nickname,path,created_at,is_owner,message`);
+      return got[0] ? normPhoto(got[0]) : null;
+    };
+    return retry(async (attempt) => {
+      try {
+        const rows = await rest('photos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
+          body: JSON.stringify(body),
+        });
+        return normPhoto(rows[0]);
+      } catch (e) {
+        // 上一次请求其实成功了、只是没收到回复：这时会撞上自己的名字，查一下是不是已经存上了
+        if (attempt > 0 || e instanceof NetworkError || e instanceof NicknameTakenError) {
+          const mine = await findMine().catch(() => null);
+          if (mine) return mine;
+        }
+        throw e;
+      }
     });
-    return normPhoto(rows[0]);
   },
 };
 
@@ -194,7 +251,7 @@ export function markDecorated(id) {
 }
 
 /* ------------------------------ 图片压缩 ------------------------------ */
-export async function compressImage(file, max = 1600, quality = 0.86) {
+export async function compressImage(file, max = 1280, quality = 0.82) {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise((res, rej) => {
@@ -208,7 +265,10 @@ export async function compressImage(file, max = 1600, quality = 0.86) {
     cv.width = Math.round(img.naturalWidth * s);
     cv.height = Math.round(img.naturalHeight * s);
     cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-    return await new Promise((res) => cv.toBlob(res, 'image/jpeg', quality));
+    let blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', quality));
+    // 还是太大就再缩一档，跨境上传越小越稳
+    if (blob && blob.size > 450 * 1024 && max > 1000) return compressImage(file, 1024, 0.78);
+    return blob;
   } finally {
     URL.revokeObjectURL(url);
   }

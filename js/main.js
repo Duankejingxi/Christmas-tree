@@ -5,7 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Fireworks, sampleText } from './fx.js';
 import { Sound } from './audio.js';
-import { api, cloudEnabled, MAX_FRIENDS, TreeFullError, NicknameTakenError, rememberMyTree, isMyTree, myTrees, hasDecorated, markDecorated, compressImage } from './api.js';
+import { api, cloudEnabled, MAX_FRIENDS, TreeFullError, NicknameTakenError, NetworkError, rememberMyTree, isMyTree, myTrees, hasDecorated, markDecorated, compressImage } from './api.js';
 
 /* =====================================================================
  * 参数
@@ -1371,7 +1371,7 @@ async function inviteFriends() {
   try {
     link = await myLink();
   } catch (e) {
-    toast('分享链接生成失败：' + (e.message || '请检查网络'));
+    toast('分享链接生成失败：' + (await netReason(e)), 5000);
     return;
   }
   if (navigator.share && IS_MOBILE && !IS_WECHAT) {
@@ -1559,10 +1559,20 @@ function goMine() {
 }
 
 /* ---------- 帮对方装饰（做自己的树之前必须完成） ---------- */
+// 把网络错误翻译成人话（顺便测一下是「慢」还是「连不上」）
+async function netReason(err) {
+  if (err instanceof NetworkError) {
+    const reachable = await api.ping();
+    return reachable
+      ? '网络有点慢，照片没传完。换个信号好的地方，或者关掉 Wi-Fi 用流量再试试。'
+      : '暂时连不上云端服务器，可能是当前网络的限制。换个网络（比如关掉 Wi-Fi 用流量）再试试。';
+  }
+  return (err && err.message) || '请稍后再试';
+}
 async function uploadMine(photo, file) {
   try {
-    const blob = await compressImage(file);
-    const row = await api.addPhoto(state.tree.id, photo.nickname, blob, { message: photo.message });
+    photo._up = photo._up || { blob: await compressImage(file), opts: { message: photo.message } };
+    const row = await api.addPhoto(state.tree.id, photo.nickname, photo._up.blob, photo._up.opts);
     photo.id = row.id;
     photo.remoteUrl = row.url;
     state.remote.push(row);
@@ -1714,8 +1724,34 @@ async function runDecorate(name, message, file, url) {
     toast('这棵树刚刚被挂满了，照片没能保存', 4000);
     finaleModal();
   } else {
-    toast('照片没能上传成功：' + (r.error && r.error.message ? r.error.message : '请检查网络'), 4500);
-    finaleModal();
+    // 网络问题：照片先留在树上，给一个「再试一次」
+    const why = await netReason(r.error);
+    if (gen !== generation) return;
+    const again = async () => {
+      on(ui.cta, false);
+      loading('正在重新上传');
+      const r2 = await uploadMine(mine, file);
+      loading();
+      if (r2.ok) {
+        markDecorated(state.tree.id);
+        openCta({
+          label: '已寄达', fan: [url], title: '挂好了，谢谢你',
+          sub: `${esc(state.tree.ownerName)} 打开就能看到你的照片${message ? '和留言' : ''}。<br>现在，种一棵你自己的树吧。`,
+          primary: ['种我自己的树', goMine], secondary: ['存一张 TA 的树', saveShot], fab: '种我的树',
+        });
+      } else if (r2.taken) {
+        removePhoto(mine);
+        openDeco();
+        decoNameError('该昵称已被注册，换一个吧');
+      } else {
+        openCta(failCard(await netReason(r2.error)));
+      }
+    };
+    const failCard = (reason) => ({
+      label: '没寄出去', fan: [url], title: '照片还没传上去',
+      sub: reason, primary: ['再试一次', again], secondary: ['先看看树', dismissCta], fab: '再传一次',
+    });
+    openCta(failCard(why));
   }
 }
 
@@ -2027,13 +2063,14 @@ async function addOwnerPhotos(files) {
   const added = prepared.filter(Boolean);
   if (!added.length) { toast('照片读取失败，换一张试试'); return; }
   // 后台上传
-  const uploads = added.map(async (p) => {
-    const blob = await compressImage(p.blob);
-    const row = await api.addPhoto(tree.id, name, blob, { ownerKey: key });
+  const uploadOne = async (p) => {
+    p._up = p._up || { blob: await compressImage(p.blob), opts: { ownerKey: key } };
+    const row = await api.addPhoto(tree.id, name, p._up.blob, p._up.opts);
     p.id = row.id;
     p.remoteUrl = row.url;
     state.remote.push(row);
-  });
+  };
+  const uploads = added.map(uploadOne);
   on(ui.dock, false);
   on(ui.cta, false);
   const used = [];
@@ -2056,10 +2093,32 @@ async function addOwnerPhotos(files) {
   on(ui.dock);
   const res = await Promise.allSettled(uploads);
   if (gen !== generation) return;
-  const bad = res.filter((r) => r.status === 'rejected');
-  if (!bad.length) toast('加好了，朋友打开就能看到');
-  else if (bad.some((r) => r.reason instanceof TreeFullError)) toast('你自己最多放 10 张照片，多出的没有保存');
-  else toast(`有 ${bad.length} 张没能保存，请检查网络后再试`);
+  const failed = added.filter((p, i) => res[i].status === 'rejected');
+  if (!failed.length) { toast('加好了，朋友打开就能看到'); return; }
+  if (res.some((r) => r.status === 'rejected' && r.reason instanceof TreeFullError)) {
+    toast('你自己最多放 10 张照片，多出的没有保存');
+    return;
+  }
+  // 网络问题：给出原因和「再试一次」
+  const firstErr = res.find((r) => r.status === 'rejected').reason;
+  const showFail = async (list, err) => {
+    openCta({
+      label: '没存上', fan: list.map((p) => p.src), title: `有 ${list.length} 张照片还没存到云端`,
+      sub: (await netReason(err)) + '<br>现在只有你这台设备上能看到它们。',
+      primary: ['再试一次', async () => {
+        on(ui.cta, false);
+        loading('正在重新上传');
+        const rr = await Promise.allSettled(list.map(uploadOne));
+        loading();
+        const still = list.filter((p, i) => rr[i].status === 'rejected');
+        if (!still.length) toast('都存好了，朋友打开就能看到');
+        else showFail(still, rr.find((x) => x.status === 'rejected').reason);
+      }],
+      secondary: ['稍后再说', dismissCta],
+      noFab: true,
+    });
+  };
+  showFail(failed, firstErr);
 }
 
 /* ---------- 声音 ---------- */
