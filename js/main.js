@@ -3,7 +3,6 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { HandTracker } from './hands.js';
 import { Fireworks, sampleText } from './fx.js';
 import { Sound } from './audio.js';
 import { api, cloudEnabled, MAX_FRIENDS, TreeFullError, rememberMyTree, isMyTree, myTrees, hasDecorated, markDecorated, compressImage } from './api.js';
@@ -100,6 +99,9 @@ const U = {
   uGS: { value: 1 },
   uBurst: { value: 0 },
   uBurstDir: { value: 1 },
+  uThemeA: { value: new THREE.Vector3(0.6, 0.82, 1.0) },
+  uThemeB: { value: new THREE.Vector3(1.0, 0.97, 0.93) },
+  uTint: { value: new THREE.Vector3(1, 1, 1) },
 };
 
 /* =====================================================================
@@ -180,6 +182,7 @@ function buildTree() {
     blending: THREE.AdditiveBlending,
     vertexShader: /* glsl */ `
       uniform float uClock, uReveal, uIntro, uScatter, uFade, uSize, uScale, uPR, uCenterZ, uGS, uBurst, uBurstDir;
+      uniform vec3 uThemeA, uThemeB, uTint;
       attribute vec4 aA;
       attribute vec4 aB;
       attribute vec3 aColor;
@@ -215,7 +218,7 @@ function buildTree() {
           // 淡淡的彩虹色沿着光带缓缓流动
           vec3 pastel = 0.5 + 0.5 * cos(TAU * (vec3(0.0, 0.33, 0.67) + fract(u * 1.4 + aA.z * 0.16 - uClock * 0.025)));
           pastel = mix(vec3(1.0), pastel, 0.6);
-          vec3 base = mix(vec3(0.6, 0.82, 1.0), vec3(1.0, 0.97, 0.93), smoothstep(0.0, 0.95, u));
+          vec3 base = mix(uThemeA, uThemeB, smoothstep(0.0, 0.95, u));
           col = mix(base, pastel, 0.42) * aColor + head * vec3(0.6, 0.5, 0.3);
           tw = 0.78 + 0.22 * sin(uClock * aB.z + aB.y);
         } else {
@@ -226,6 +229,7 @@ function buildTree() {
           vec3 outw = normalize(vec3(p.x, 0.0, p.z) + vec3(1e-4, 0.0, 1e-4));
           if (type < 3.5) p += (outw * 1.0 + vec3(0.0, 0.9, 0.0)) * (1.0 - ke);
           alpha = ke;
+          if (type < 2.5) col = mix(col, col * uTint * 1.1, 0.7);
           if (type < 1.5) tw = 0.16 + 1.3 * pow(max(0.0, sin(uClock * aB.z + aB.y)), 12.0);
           else if (type < 2.5) tw = 0.8 + 0.2 * sin(uClock * 0.6 + aB.y);
           else if (type < 3.5) tw = 0.6 + 0.4 * sin(uClock * aB.z * 0.6 + aB.y);
@@ -589,6 +593,7 @@ const state = {
   pending: [], // 首页选择的照片 {file, url}
   uploading: null,
   shareP: null,
+  theme: 'ice',
 };
 
 function loadImage(src) {
@@ -833,10 +838,13 @@ function runTimers(dt) {
  * UI 基础
  * ===================================================================== */
 const ui = {};
-['landing', 'eyebrow', 'lead', 'form', 'nickField', 'nick', 'slots', 'addSlot', 'file', 'note', 'go', 'goText', 'alt',
-  'caption', 'ask', 'camYes', 'camNo', 'hint', 'cam', 'camCanvas', 'video', 'dock', 'inviteLabel', 'newLabel',
-  'sheet', 'sheetTitle', 'sheetSub', 'qr', 'shareLink', 'copyBtn', 'nativeShare', 'openMine', 'demoNote',
-  'album', 'albumTitle', 'albumGrid', 'zipBtn', 'lightbox', 'lbPrev', 'lbNext', 'lbImg', 'lbWho', 'lbWhen', 'lbDownload',
+['landing', 'eyebrow', 'lead', 'form', 'nickField', 'nick', 'nickTip', 'themes', 'slots', 'addSlot', 'file', 'note', 'go', 'goText', 'alt',
+  'caption', 'hint', 'swipeTip', 'dock', 'fab', 'fabText',
+  'cta', 'ctaCard', 'ctaClose', 'ctaFan', 'ctaScript', 'ctaTitle', 'ctaSub', 'ctaPrimary', 'ctaSecondary', 'ctaFoot',
+  'deco', 'decoCard', 'decoClose', 'decoTitle', 'decoSlot', 'decoFile', 'decoImg', 'decoNameField', 'decoName', 'decoMsg', 'decoGo',
+  'shotView', 'shotImg', 'shotTip', 'shotSave',
+  'sheet', 'sheetTitle', 'sheetSub', 'qr', 'shareLink', 'copyBtn', 'nativeShare', 'demoNote',
+  'album', 'albumTitle', 'albumGrid', 'zipBtn', 'lightbox', 'lbPrev', 'lbNext', 'lbImg', 'lbWho', 'lbMsg', 'lbWhen', 'lbDownload',
   'loading', 'loadingText', 'toast', 'soundBtn'].forEach((id) => { ui[id] = $(id); });
 
 const on = (el, v = true) => el.classList.toggle('is-on', v);
@@ -853,6 +861,7 @@ function loading(text) {
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const IS_WECHAT = /MicroMessenger/i.test(navigator.userAgent);
+const rot = () => `${(Math.random() * 10 - 5).toFixed(1)}deg`;
 
 function countdownText() {
   const now = new Date();
@@ -863,13 +872,29 @@ function countdownText() {
   return days <= 0 ? '今天就是圣诞节' : `距离圣诞还有 ${days} 天`;
 }
 
-/* ---------- 首页 ---------- */
-const rot = () => `${(Math.random() * 10 - 5).toFixed(1)}deg`;
+/* ---------- 颜色主题 ---------- */
+const THEMES = {
+  ice: { a: [0.6, 0.82, 1.0], b: [1.0, 0.97, 0.93], tint: [1, 1, 1] },
+  gold: { a: [1.0, 0.68, 0.3], b: [1.0, 0.95, 0.8], tint: [1.0, 0.8, 0.5] },
+  pink: { a: [1.0, 0.52, 0.74], b: [1.0, 0.92, 0.96], tint: [1.0, 0.72, 0.86] },
+};
+function applyTheme(name) {
+  const t = THEMES[name] || THEMES.ice;
+  state.theme = THEMES[name] ? name : 'ice';
+  U.uThemeA.value.set(...t.a);
+  U.uThemeB.value.set(...t.b);
+  U.uTint.value.set(...t.tint);
+}
+ui.themes.addEventListener('click', (e) => {
+  const b = e.target.closest('.theme');
+  if (!b) return;
+  ui.themes.querySelectorAll('.theme').forEach((n) => n.classList.toggle('on', n === b));
+  applyTheme(b.dataset.theme);
+});
 
+/* ---------- 首页（做自己的树） ---------- */
 function renderSlots() {
   ui.slots.querySelectorAll('.slot:not(.add)').forEach((n) => n.remove());
-  const single = false;
-  ui.slots.classList.toggle('single', single);
   state.pending.forEach((p, i) => {
     const d = document.createElement('div');
     d.className = 'slot';
@@ -883,68 +908,40 @@ function renderSlots() {
     };
     ui.slots.insertBefore(d, ui.addSlot);
   });
-  const max = single ? 1 : MAX_LOCAL;
-  ui.addSlot.classList.toggle('full', state.pending.length >= max);
-  ui.file.multiple = !single;
-  if (state.mode === 'local') {
-    ui.note.innerHTML = state.pending.length
-      ? `已放入 <b>${state.pending.length}</b> 张 · 最多 ${MAX_LOCAL} 张`
-      : '放几张照片进去 · 可选';
-  }
+  ui.addSlot.classList.toggle('full', state.pending.length >= MAX_LOCAL);
+  ui.note.innerHTML = state.pending.length
+    ? `已放入 <b>${state.pending.length}</b> 张 · 最多 ${MAX_LOCAL} 张`
+    : '放几张照片进去 · 可选 · 最多 10 张';
 }
-
 ui.file.addEventListener('change', () => {
   const files = [...ui.file.files].filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(f.name));
-  const single = false;
-  if (single) {
-    state.pending.forEach((p) => URL.revokeObjectURL(p.url));
-    state.pending = [];
-  }
-  const max = single ? 1 : MAX_LOCAL;
-  const room = max - state.pending.length;
-  if (files.length > room && !single) toast(`最多 ${max} 张，已保留前 ${room} 张`);
+  const room = MAX_LOCAL - state.pending.length;
+  if (files.length > room) toast(`最多 ${MAX_LOCAL} 张，已保留前 ${room} 张`);
   files.slice(0, room).forEach((file) => state.pending.push({ file, url: URL.createObjectURL(file) }));
   ui.file.value = '';
   renderSlots();
 });
 
-const friendCount = () => state.remote.filter((r) => !r.isOwner).length;
-const ownerName = () => (state.tree ? state.tree.ownerName : state.nickname);
-
+function savedNick() {
+  try { return localStorage.getItem('xmas.nick') || ''; } catch (e) { return ''; }
+}
 function setLanding() {
   ui.eyebrow.textContent = countdownText();
-  const n = friendCount();
-  ui.nickField.hidden = false;
-  ui.slots.hidden = false;
-  ui.nick.placeholder = '你的名字';
+  const fromFriend = params.has('from');
+  ui.lead.textContent = fromFriend ? '轮到你了 · 做一棵你自己的圣诞树' : '点亮一棵属于你的圣诞树';
+  if (!ui.nick.value) ui.nick.value = savedNick();
+  ui.nickTip.hidden = !(fromFriend && ui.nick.value);
   ui.alt.textContent = '';
   ui.alt.onclick = null;
-  if (state.mode === 'local') {
-    ui.lead.textContent = params.has('from') ? '轮到你了 · 点亮你自己的圣诞树' : '点亮一棵属于你的圣诞树';
-    ui.goText.textContent = '点亮';
-    const last = myTrees()[0];
-    if (last && !params.has('from')) {
-      ui.alt.textContent = '打开我上次的圣诞树 →';
-      ui.alt.onclick = () => { location.href = shareLinkFor(last.id); };
-    }
-  } else {
-    ui.nickField.hidden = true;
-    ui.slots.hidden = true;
-    ui.goText.textContent = '打开';
-    if (state.mode === 'visit') {
-      ui.lead.innerHTML = `<b>${esc(state.tree.ownerName)}</b> 的圣诞树`;
-      ui.note.innerHTML = n ? `已有 <b>${n}</b> 位朋友来装饰过` : 'TA 邀请你来看看这棵圣诞树';
-    } else {
-      ui.lead.textContent = '你的圣诞树';
-      ui.note.innerHTML = n ? `已有 <b>${n}</b> 位朋友来装饰 · 还能挂 ${MAX_FRIENDS - n} 张` : '还没有朋友来装饰，把链接发给他们吧';
-      ui.alt.textContent = '邀请朋友 →';
-      ui.alt.onclick = () => openSheet(shareLinkFor(state.tree.id), true);
-    }
+  const last = myTrees()[0];
+  if (last && !fromFriend) {
+    ui.alt.textContent = '打开我上次做的圣诞树 →';
+    ui.alt.onclick = () => { location.href = shareLinkFor(last.id); };
   }
   renderSlots();
-  try { if (!ui.nick.value) ui.nick.value = localStorage.getItem('xmas.nick') || ''; } catch (e) { /* ignore */ }
   document.body.classList.remove('booting');
 }
+ui.nick.addEventListener('input', () => { ui.nickTip.hidden = true; });
 
 function requireName(input, field) {
   const v = input.value.trim();
@@ -953,50 +950,36 @@ function requireName(input, field) {
     void field.offsetWidth;
     field.classList.add('shake');
     input.focus();
-    toast('先写下你的名字吧');
+    toast('先写下你的昵称吧');
     return null;
   }
   try { localStorage.setItem('xmas.nick', v); } catch (e) { /* ignore */ }
   return v;
 }
 
-const remoteToPhoto = (r) => ({ nickname: r.nickname, src: r.url, createdAt: r.createdAt, id: r.id, isOwner: r.isOwner, message: r.message });
-
 ui.go.addEventListener('click', () => {
-  if (state.mode === 'local') {
-    const nick = requireName(ui.nick, ui.nickField);
-    if (!nick) return;
-    state.nickname = nick;
-    const photos = state.pending.map((p, i) => ({
-      nickname: nick, src: p.url, blob: p.file, isOwner: true,
-      createdAt: new Date(Date.now() + i).toISOString(),
-    }));
-    // 点亮的同时在后台把树存到云端，这样随时可以分享
-    ensureShared(photos).catch(() => {});
-    start({ featured: photos, prehung: [], seed: 'local-' + Math.random() });
-    return;
-  }
-  const owners = state.remote.filter((r) => r.isOwner).map(remoteToPhoto);
-  const friends = state.remote.filter((r) => !r.isOwner).map(remoteToPhoto);
-  if (state.mode === 'visit') {
-    // 朋友先看到主人的照片逐张出现，其他朋友的照片已经挂在树上
-    start(owners.length
-      ? { featured: owners, prehung: friends, seed: state.tree.id }
-      : { featured: friends, prehung: [], seed: state.tree.id });
-  } else {
-    // 主人回来看：朋友们挂的照片逐张出现
-    start(friends.length
-      ? { featured: friends, prehung: owners, seed: state.tree.id }
-      : { featured: owners, prehung: [], seed: state.tree.id });
-  }
+  const nick = requireName(ui.nick, ui.nickField);
+  if (!nick) return;
+  state.nickname = nick;
+  const photos = state.pending.map((p, i) => ({
+    nickname: nick, src: p.url, blob: p.file, isOwner: true,
+    createdAt: new Date(Date.now() + i).toISOString(),
+  }));
+  // 点亮的同时在后台把树存到云端，这样随时可以分享
+  ensureShared(photos).catch(() => {});
+  start({ featured: photos, prehung: [], seed: 'local-' + Math.random() });
 });
 ui.nick.addEventListener('keydown', (e) => { if (e.key === 'Enter') ui.go.click(); });
+
+const remoteToPhoto = (r) => ({ nickname: r.nickname, src: r.url, createdAt: r.createdAt, id: r.id, isOwner: r.isOwner, message: r.message });
+const friendCount = () => state.remote.filter((r) => !r.isOwner).length;
+const ownerName = () => (state.tree ? state.tree.ownerName : state.nickname);
 
 /* ---------- 存到云端（主人） ---------- */
 function ensureShared(photos) {
   if (!state.shareP) {
     state.shareP = (async () => {
-      const { tree, ownerKey } = await api.createTree(state.nickname);
+      const { tree, ownerKey } = await api.createTree(state.nickname, state.theme);
       rememberMyTree(tree, ownerKey);
       for (const p of photos) {
         const blob = await compressImage(p.blob);
@@ -1012,23 +995,203 @@ function ensureShared(photos) {
   }
   return state.shareP;
 }
-async function inviteFriends() {
-  if (state.mode !== 'local') {
-    openSheet(shareLinkFor(state.tree.id), state.mode === 'owner');
-    return;
-  }
-  loading('正在准备分享链接');
+async function myLink() {
+  if (state.mode !== 'local') return shareLinkFor(state.tree.id);
+  loading('正在生成分享链接');
   try {
     const tree = await ensureShared(state.photos.filter((p) => p.isOwner));
+    return shareLinkFor(tree.id);
+  } finally {
     loading();
-    openSheet(shareLinkFor(tree.id), true);
-  } catch (e) {
-    loading();
-    toast('分享链接生成失败：' + (e.message || '请检查网络'));
   }
 }
+async function copyText(v) {
+  try {
+    await navigator.clipboard.writeText(v);
+    return true;
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = v;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { /* ignore */ }
+    ta.remove();
+    return ok;
+  }
+}
+async function inviteFriends() {
+  let link;
+  try {
+    link = await myLink();
+  } catch (e) {
+    toast('分享链接生成失败：' + (e.message || '请检查网络'));
+    return;
+  }
+  if (navigator.share && IS_MOBILE && !IS_WECHAT) {
+    navigator.share({ title: 'Merry Christmas', text: `来帮 ${ownerName()} 装饰圣诞树吧 🎄`, url: link }).catch(() => {});
+    return;
+  }
+  if (await copyText(link)) toast('链接已复制，快发给朋友吧 ✨', 3200);
+  else openSheet(link, true);
+}
 
-/* ---------- 朋友帮忙挂照片 ---------- */
+/* =====================================================================
+ * 居中弹窗 + 收起后飞到右上角的按钮
+ * ===================================================================== */
+let fabCfg = null;
+let sparkTimer = 0;
+function setFan(srcs) {
+  ui.ctaFan.innerHTML = '';
+  const list = srcs.slice(0, 3);
+  ui.ctaFan.classList.toggle('has', list.length > 0);
+  list.forEach((src, i) => {
+    const s = document.createElement('span');
+    const off = (i - (list.length - 1) / 2);
+    s.style.setProperty('--x', `${off * 46}px`);
+    s.style.setProperty('--r', `${off * 9}deg`);
+    s.innerHTML = '<i></i>';
+    s.querySelector('i').style.backgroundImage = `url("${src}")`;
+    ui.ctaFan.appendChild(s);
+  });
+}
+// cfg: { fan, title, sub, primary: [text, fn], secondary?: [text, fn], foot, fab }
+function openCta(cfg) {
+  fabCfg = cfg;
+  hideFab();
+  setFan(cfg.fan || []);
+  ui.ctaTitle.innerHTML = cfg.title;
+  ui.ctaSub.innerHTML = cfg.sub || '';
+  ui.ctaPrimary.textContent = cfg.primary[0];
+  ui.ctaPrimary.onclick = cfg.primary[1];
+  ui.ctaSecondary.hidden = !cfg.secondary;
+  if (cfg.secondary) {
+    ui.ctaSecondary.textContent = cfg.secondary[0];
+    ui.ctaSecondary.onclick = cfg.secondary[1];
+  }
+  ui.ctaFoot.innerHTML = cfg.foot || '';
+  ui.ctaCard.style.opacity = '';
+  on(ui.cta);
+}
+function closeToFab(card, overlay, cfg) {
+  if (cfg) fabCfg = cfg;
+  ui.fabText.textContent = fabCfg ? fabCfg.fab : '';
+  // 先把按钮放好（不可见）以便计算终点
+  ui.fab.style.visibility = 'hidden';
+  ui.fab.classList.add('is-on');
+  const to = ui.fab.getBoundingClientRect();
+  ui.fab.classList.remove('is-on');
+  ui.fab.style.visibility = '';
+  const from = card.getBoundingClientRect();
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+  const sx = to.width / from.width, sy = to.height / from.height;
+  overlay.style.transition = 'background .5s, backdrop-filter .5s';
+  overlay.style.background = 'transparent';
+  overlay.style.backdropFilter = 'none';
+  overlay.style.webkitBackdropFilter = 'none';
+  const anim = card.animate([
+    { transform: 'none', opacity: 1, borderRadius: '26px' },
+    { transform: `translate(${dx * 0.55}px, ${dy * 0.35}px) scale(${0.5 + sx * 0.5}, ${0.45 + sy * 0.55})`, opacity: 0.9, borderRadius: '60px', offset: 0.55 },
+    { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, opacity: 0.25, borderRadius: '99px' },
+  ], { duration: 720, easing: 'cubic-bezier(.65,0,.25,1)' });
+  anim.onfinish = () => {
+    card.style.opacity = '0';
+    on(overlay, false);
+    overlay.style.background = '';
+    overlay.style.backdropFilter = '';
+    overlay.style.webkitBackdropFilter = '';
+    setTimeout(() => { card.style.opacity = ''; }, 700);
+    showFab();
+  };
+}
+function spawnSparks(n, spread = 1) {
+  const r = ui.fab.getBoundingClientRect();
+  for (let i = 0; i < n; i++) {
+    const s = document.createElement('i');
+    s.className = 'spark';
+    const a = Math.random() * Math.PI * 2;
+    const ex = r.left + r.width / 2 + Math.cos(a) * r.width * 0.5;
+    const ey = r.top + r.height / 2 + Math.sin(a) * r.height * 0.5;
+    const dist = (18 + Math.random() * 30) * spread;
+    s.style.left = `${ex}px`;
+    s.style.top = `${ey}px`;
+    s.style.setProperty('--x', `${Math.cos(a) * dist}px`);
+    s.style.setProperty('--y', `${Math.sin(a) * dist + 8}px`);
+    s.style.setProperty('--d', `${0.8 + Math.random() * 0.8}s`);
+    document.body.appendChild(s);
+    setTimeout(() => s.remove(), 1700);
+  }
+}
+function showFab() {
+  if (!fabCfg) return;
+  ui.fabText.textContent = fabCfg.fab;
+  on(ui.fab);
+  sound.chime(3);
+  setTimeout(() => spawnSparks(18, 1.6), 120);
+  clearInterval(sparkTimer);
+  sparkTimer = setInterval(() => { if (!document.hidden) spawnSparks(2); }, 260);
+}
+function hideFab() {
+  on(ui.fab, false);
+  clearInterval(sparkTimer);
+}
+ui.fab.addEventListener('click', () => { if (fabCfg) openCta(fabCfg); });
+ui.ctaClose.addEventListener('click', () => closeToFab(ui.ctaCard, ui.cta));
+ui.cta.addEventListener('click', (e) => { if (e.target === ui.cta) closeToFab(ui.ctaCard, ui.cta); });
+
+/* ---------- 结束后根据身份弹出 ---------- */
+function photoSrcs(filter) {
+  return state.photos.filter(filter).map((p) => p.src);
+}
+function finaleModal() {
+  if (state.mode === 'visit') {
+    const owner = esc(state.tree.ownerName);
+    const done = hasDecorated(state.tree.id);
+    const full = friendCount() >= MAX_FRIENDS;
+    const n = friendCount();
+    if (done || full) {
+      openCta({
+        fan: photoSrcs(() => true),
+        title: done ? `谢谢你帮 <b>${owner}</b> 装饰！` : `<b>${owner}</b> 的树已经挂满啦`,
+        sub: '现在轮到你了，做一棵你自己的圣诞树吧',
+        primary: ['制作我的圣诞树', goMine],
+        secondary: ['保存 TA 的圣诞树', saveShot],
+        fab: '做我的树',
+      });
+    } else {
+      openCta({
+        fan: photoSrcs((p) => p.isOwner),
+        title: `<b>${owner}</b> 邀请你<br>来装饰 TA 的圣诞树`,
+        sub: n ? `已经有 ${n} 位朋友挂上了照片` : '你会是第一个来装饰的朋友',
+        primary: ['制作我的圣诞树', openDeco],
+        secondary: ['保存 TA 的圣诞树', saveShot],
+        foot: '制作前需要先帮 TA 挂一张照片',
+        fab: '做我的树',
+      });
+    }
+  } else {
+    const n = friendCount();
+    openCta({
+      fan: photoSrcs(() => true),
+      title: state.mode === 'owner' && n ? `已经有 <b>${n}</b> 位朋友<br>帮你装饰了圣诞树` : '你的圣诞树做好啦',
+      sub: `把链接发给朋友，让他们来帮你装饰<br>每人挂一张照片 · 最多 ${MAX_FRIENDS} 位`,
+      primary: ['复制链接 · 邀请朋友', inviteFriends],
+      secondary: ['保存圣诞树图片', saveShot],
+      foot: '<button class="text-link" id="qrLink">显示二维码</button>',
+      fab: '邀请朋友',
+    });
+    $('qrLink').onclick = async () => {
+      try { openSheet(await myLink(), true); } catch (e) { toast('分享链接生成失败'); }
+    };
+  }
+}
+function goMine() {
+  location.href = state.tree ? `${BASE_URL}?from=${encodeURIComponent(state.tree.id)}` : BASE_URL;
+}
+
+/* ---------- 帮对方装饰（做自己的树之前必须完成） ---------- */
 async function uploadMine(photo, file) {
   try {
     const blob = await compressImage(file);
@@ -1042,15 +1205,17 @@ async function uploadMine(photo, file) {
     return { ok: false, full: e instanceof TreeFullError, error: e };
   }
 }
-
 const deco = { file: null, url: '' };
-['decoName', 'decoMsg', 'decoFile', 'decoSlot', 'decoImg', 'decoGo', 'decoTitle', 'decoNameField', 'card', 'cardText', 'cardBtn', 'cardClose', 'lbMsg', 'swipeTip', 'deco']
-  .forEach((id) => { ui[id] = $(id); });
 function openDeco() {
-  ui.decoTitle.textContent = `帮 ${state.tree.ownerName} 装饰圣诞树`;
-  try { if (!ui.decoName.value) ui.decoName.value = localStorage.getItem('xmas.nick') || ''; } catch (e) { /* ignore */ }
+  on(ui.cta, false);
+  hideFab();
+  fabCfg = fabCfg || { fab: '做我的树' };
+  ui.decoTitle.innerHTML = `先帮 <b>${esc(state.tree.ownerName)}</b><br>装饰 TA 的圣诞树`;
+  if (!ui.decoName.value) ui.decoName.value = savedNick();
+  ui.decoCard.style.opacity = '';
   on(ui.deco);
 }
+ui.decoClose.addEventListener('click', () => closeToFab(ui.decoCard, ui.deco));
 ui.decoFile.addEventListener('change', () => {
   const f = ui.decoFile.files[0];
   ui.decoFile.value = '';
@@ -1063,9 +1228,13 @@ ui.decoFile.addEventListener('change', () => {
   ui.decoSlot.classList.add('has');
 });
 ui.decoGo.addEventListener('click', () => {
+  if (!deco.file) {
+    toast('先选一张照片挂到 TA 的树上');
+    ui.decoSlot.animate([{ transform: 'rotate(-2deg) scale(1)' }, { transform: 'rotate(-2deg) scale(1.08)' }, { transform: 'rotate(-2deg) scale(1)' }], { duration: 400 });
+    return;
+  }
   const name = requireName(ui.decoName, ui.decoNameField);
   if (!name) return;
-  if (!deco.file) { toast('选一张照片挂到树上吧'); return; }
   on(ui.deco, false);
   runDecorate(name, ui.decoMsg.value.trim(), deco.file, deco.url);
   deco.file = null;
@@ -1077,7 +1246,6 @@ ui.decoGo.addEventListener('click', () => {
 
 async function runDecorate(name, message, file, url) {
   const gen = generation;
-  on(ui.card, false);
   on(ui.dock, false);
   const mine = { nickname: name, message, src: url, blob: file, createdAt: new Date().toISOString(), mine: true };
   const upload = uploadMine(mine, file);
@@ -1086,7 +1254,7 @@ async function runDecorate(name, message, file, url) {
   } catch (e) {
     toast('这张照片读取失败，换一张试试');
     on(ui.dock);
-    showCard();
+    openDeco();
     return;
   }
   state.photos.push(mine);
@@ -1098,45 +1266,111 @@ async function runDecorate(name, message, file, url) {
   await sleep(1.2);
   const r = await upload;
   if (gen !== generation) return;
+  on(ui.dock);
   if (r.ok) {
     markDecorated(state.tree.id);
-    toast(`你的照片已经挂在 ${state.tree.ownerName} 的树上了`, 3600);
+    openCta({
+      fan: [url],
+      title: '挂好啦，谢谢你！',
+      sub: `你的照片已经挂在 ${esc(state.tree.ownerName)} 的树上<br>现在，做一棵你自己的圣诞树吧`,
+      primary: ['开始制作我的圣诞树 →', goMine],
+      secondary: ['保存 TA 的圣诞树', saveShot],
+      fab: '做我的树',
+    });
   } else if (r.full) {
     toast('这棵树刚刚被挂满了，照片没能保存', 4000);
+    finaleModal();
   } else {
     toast('照片没能上传成功：' + (r.error && r.error.message ? r.error.message : '请检查网络'), 4500);
+    finaleModal();
   }
-  on(ui.dock);
-  showCard();
 }
 
-/* ---------- 结束后的引导卡片 ---------- */
-function showCard() {
-  let text, btn, act;
-  if (state.mode === 'visit') {
-    const done = hasDecorated(state.tree.id);
-    if (done || friendCount() >= MAX_FRIENDS) {
-      text = done ? '你的照片已经挂在树上啦<small>现在去点亮你自己的圣诞树吧</small>' : '这棵树已经挂满啦<small>去点亮你自己的圣诞树吧</small>';
-      btn = '点亮我的树';
-      act = () => { location.href = `${BASE_URL}?from=${encodeURIComponent(state.tree.id)}`; };
-    } else {
-      text = `帮 <b>${esc(state.tree.ownerName)}</b> 挂一张照片<small>就能点亮你自己的圣诞树</small>`;
-      btn = '挂一张照片';
-      act = openDeco;
-    }
-  } else {
-    text = `邀请朋友来装饰你的树<small>每人挂一张照片 · 最多 ${MAX_FRIENDS} 位</small>`;
-    btn = '邀请朋友';
-    act = inviteFriends;
-  }
-  ui.cardText.innerHTML = text;
-  ui.cardBtn.textContent = btn;
-  ui.cardBtn.onclick = act;
-  on(ui.card);
+/* =====================================================================
+ * 保存图片：只截取画面（不含按钮），加上名字和二维码
+ * ===================================================================== */
+let shotRequest = null;
+let shotBlob = null;
+function captureFrame() {
+  return new Promise((resolve) => { shotRequest = resolve; });
 }
-ui.cardClose.addEventListener('click', () => on(ui.card, false));
+async function saveShot() {
+  loading('正在生成图片');
+  try {
+    const frameCanvas = await captureFrame();
+    let link = '';
+    try { link = state.tree ? shareLinkFor(state.tree.id) : await myLink(); } catch (e) { /* 没有链接也能保存 */ }
+    const blob = await composePoster(frameCanvas, link);
+    shotBlob = blob;
+    if (ui.shotImg.src) URL.revokeObjectURL(ui.shotImg.src);
+    ui.shotImg.src = URL.createObjectURL(blob);
+    ui.shotTip.textContent = IS_MOBILE ? '长按图片，保存到相册' : '右键图片另存，或点下面的按钮';
+    ui.shotSave.hidden = IS_WECHAT;
+    on(ui.shotView);
+  } catch (e) {
+    console.warn(e);
+    toast('图片生成失败，请重试');
+  }
+  loading();
+}
+async function composePoster(src, link) {
+  const W = src.width, H = src.height;
+  const cv = document.createElement('canvas');
+  cv.width = W;
+  cv.height = H;
+  const g = cv.getContext('2d');
+  g.drawImage(src, 0, 0);
+  const u = Math.min(W, H) / 100;
+  // 底部渐变 + 文字
+  const grd = g.createLinearGradient(0, H * 0.72, 0, H);
+  grd.addColorStop(0, 'rgba(3,5,11,0)');
+  grd.addColorStop(1, 'rgba(3,5,11,0.85)');
+  g.fillStyle = grd;
+  g.fillRect(0, H * 0.72, W, H * 0.28);
+  const qrSize = link ? Math.round(u * 17) : 0;
+  const pad = Math.round(u * 5);
+  g.textBaseline = 'alphabetic';
+  g.textAlign = 'left';
+  g.fillStyle = '#fff1cc';
+  g.shadowColor = 'rgba(255,200,110,.6)';
+  g.shadowBlur = u * 2;
+  g.font = `${Math.round(u * 9)}px "Great Vibes", cursive`;
+  g.fillText('Merry Christmas', pad, H - pad - u * 6.5);
+  g.shadowBlur = 0;
+  g.fillStyle = 'rgba(246,241,231,.8)';
+  g.font = `${Math.round(u * 3.4)}px "Songti SC","Noto Serif SC",serif`;
+  g.fillText(`${ownerName()} 的圣诞树 · ${countdownText()}`, pad, H - pad);
+  if (link) {
+    try {
+      await loadScript('./lib/vendor/qrcode.js');
+      const qr = window.qrcode(0, 'M');
+      qr.addData(link);
+      qr.make();
+      const img = await loadImage(qr.createDataURL(8, 0));
+      const x = W - pad - qrSize, y = H - pad - qrSize - u * 4.5;
+      g.fillStyle = '#f5f0e6';
+      g.fillRect(x - u * 1.2, y - u * 1.2, qrSize + u * 2.4, qrSize + u * 2.4);
+      g.imageSmoothingEnabled = false;
+      g.drawImage(img, x, y, qrSize, qrSize);
+      g.imageSmoothingEnabled = true;
+      g.textAlign = 'center';
+      g.fillStyle = 'rgba(246,241,231,.85)';
+      g.font = `${Math.round(u * 2.6)}px sans-serif`;
+      g.fillText(state.mode === 'visit' ? '扫码一起装饰' : '扫码帮我装饰', x + qrSize / 2, H - pad);
+    } catch (e) { /* 没有二维码也没关系 */ }
+  }
+  return new Promise((res) => cv.toBlob(res, 'image/png'));
+}
+ui.shotSave.addEventListener('click', async () => {
+  if (!shotBlob) return;
+  const file = new File([shotBlob], 'christmas-tree.png', { type: 'image/png' });
+  if (navigator.canShare && navigator.canShare({ files: [file] }) && IS_MOBILE) {
+    try { await navigator.share({ files: [file], title: 'Merry Christmas' }); return; } catch (e) { /* 用户取消 */ return; }
+  }
+  saveBlob(shotBlob, 'christmas-tree.png');
+});
 
-/* ---------- 分享 ---------- */
+/* ---------- 分享（链接 + 二维码） ---------- */
 const shareLinkFor = (id) => `${BASE_URL}?t=${encodeURIComponent(id)}`;
 const scriptCache = {};
 function loadScript(src) {
@@ -1149,16 +1383,12 @@ function loadScript(src) {
   });
   return scriptCache[src];
 }
-
 async function openSheet(link, mine) {
   ui.shareLink.value = link;
   ui.sheetTitle.textContent = mine ? '邀请朋友来装饰你的树' : '把这棵树分享给朋友';
-  ui.sheetSub.textContent = mine
-    ? `每位朋友可以挂上一张照片 · 最多 ${MAX_FRIENDS} 位`
-    : `还能挂 ${Math.max(0, MAX_FRIENDS - friendCount())} 张照片`;
+  ui.sheetSub.textContent = `每位朋友可以挂上一张照片 · 最多 ${MAX_FRIENDS} 位`;
   ui.demoNote.hidden = cloudEnabled;
   ui.nativeShare.hidden = !navigator.share;
-  ui.openMine.hidden = true;
   ui.qr.innerHTML = '';
   ui.qr.hidden = false;
   on(ui.sheet);
@@ -1176,24 +1406,19 @@ async function openSheet(link, mine) {
   }
 }
 ui.copyBtn.addEventListener('click', async () => {
-  const v = ui.shareLink.value;
-  try {
-    await navigator.clipboard.writeText(v);
-  } catch (e) {
-    ui.shareLink.select();
-    document.execCommand('copy');
+  if (await copyText(ui.shareLink.value)) {
+    ui.copyBtn.textContent = '已复制';
+    setTimeout(() => { ui.copyBtn.textContent = '复制'; }, 1600);
   }
-  ui.copyBtn.textContent = '已复制';
-  setTimeout(() => { ui.copyBtn.textContent = '复制'; }, 1600);
 });
 ui.nativeShare.addEventListener('click', () => {
   navigator.share({ title: 'Merry Christmas', text: '来帮我装饰圣诞树吧', url: ui.shareLink.value }).catch(() => {});
 });
 
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => on(b.closest('.overlay'), false)));
-document.querySelectorAll('.overlay').forEach((o) => o.addEventListener('click', (e) => { if (e.target === o) on(o, false); }));
+document.querySelectorAll('.overlay:not(.modal-wrap)').forEach((o) => o.addEventListener('click', (e) => { if (e.target === o) on(o, false); }));
 addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') document.querySelectorAll('.overlay.is-on').forEach((o) => on(o, false));
+  if (e.key === 'Escape') document.querySelectorAll('.overlay.is-on:not(.modal-wrap)').forEach((o) => on(o, false));
   if (ui.lightbox.classList.contains('is-on')) {
     if (e.key === 'ArrowLeft') lbGo(-1);
     if (e.key === 'ArrowRight') lbGo(1);
@@ -1207,8 +1432,7 @@ const fmtDate = (s) => {
 };
 function openAlbum() {
   const list = state.photos;
-  const owner = state.tree ? `${state.tree.ownerName} 的圣诞树` : `${state.nickname} 的圣诞树`;
-  ui.albumTitle.textContent = `${owner} · ${list.length} 张照片`;
+  ui.albumTitle.textContent = `${ownerName()} 的圣诞树 · ${list.length} 张照片`;
   ui.albumGrid.innerHTML = list.length ? '' : '<p class="album-empty">还没有照片</p>';
   list.forEach((p, i) => {
     const d = document.createElement('div');
@@ -1292,92 +1516,29 @@ ui.zipBtn.addEventListener('click', async () => {
   loading();
 });
 
-/* ---------- 结束 dock ---------- */
+/* ---------- 小工具栏 ---------- */
 ui.dock.addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
   const act = b.dataset.act;
   if (act === 'replay') replay();
   else if (act === 'album') openAlbum();
-  else if (act === 'invite') inviteFriends();
-  else if (act === 'new') {
-    location.href = state.mode === 'visit' ? `${BASE_URL}?from=${encodeURIComponent(state.tree.id)}` : BASE_URL;
-  }
+  else if (act === 'save') saveShot();
 });
-function setupDock() {
-  ui.inviteLabel.textContent = state.mode === 'visit' ? '分享' : '邀请朋友';
-  ui.newLabel.textContent = state.mode === 'visit' ? '我也要一棵' : '新的树';
-}
 
-/* ---------- 声音按钮 ---------- */
-ui.soundBtn.addEventListener('click', () => {
+/* ---------- 声音 ---------- */
+ui.soundBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
   sound.unlock();
   const en = sound.toggle();
   if (en) sound.startMusic();
   ui.soundBtn.classList.toggle('muted', !en);
 });
-
-/* =====================================================================
- * 手势
- * ===================================================================== */
-let hands = null;
-let mode = 'none'; // 'cam' | 'auto'
-let camQueue = null;
-function onTriggerNext() {
-  if (mode !== 'cam' || !camQueue || camQueue.busy) return false;
-  const q = camQueue;
-  if (q.next >= q.list.length) return false;
-  const p = q.list[q.next++];
-  q.busy = true;
-  on(ui.hint, false);
-  showPhoto(p).then(() => {
-    q.busy = false;
-    if (q.next >= q.list.length) q.resolveAll();
-    else updateHint();
-  });
-  return true;
-}
-function updateHint() {
-  if (mode !== 'cam' || !camQueue) return;
-  const n = camQueue.list.length;
-  ui.hint.innerHTML = n > 1 ? `捏合手指 · <b>${camQueue.next + 1} / ${n}</b>` : '捏合手指，把照片挂上去';
-  on(ui.hint);
-}
-async function startHands() {
-  loading('正在打开摄像头');
-  try {
-    hands = new HandTracker(ui.video, ui.camCanvas, null);
-    hands.onPinch = onTriggerNext;
-    hands.onPinchChange = (v) => ui.cam.classList.toggle('pinch', v);
-    await hands.start();
-    loading();
-    on(ui.cam);
-    return true;
-  } catch (e) {
-    console.warn(e);
-    loading();
-    if (hands) hands.stop();
-    hands = null;
-    const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
-    toast(denied ? '没有摄像头权限，改为自动播放' : '摄像头没能打开，改为自动播放');
-    return false;
-  }
-}
-function stopHands() {
-  if (hands) hands.stop();
-  hands = null;
-  on(ui.cam, false);
-  ui.cam.classList.remove('pinch');
-}
-function askCamera(single) {
-  ui.ask.querySelector('p').firstChild.textContent = single ? '用手势把照片挂上去？' : '用手势翻看照片？';
-  return new Promise((resolve) => {
-    on(ui.ask);
-    const done = (v) => { on(ui.ask, false); resolve(v); };
-    ui.camYes.onclick = () => done(true);
-    ui.camNo.onclick = () => done(false);
-  });
-}
+// 第一次触碰屏幕时开始播放音乐（浏览器要求用户手势）
+addEventListener('pointerdown', () => {
+  sound.unlock();
+  if (sound.enabled) sound.startMusic();
+}, { once: true, capture: true });
 
 /* =====================================================================
  * 主流程
@@ -1408,7 +1569,6 @@ async function start(args) {
   // 按上传时间顺序放置，保证每个人看到的位置一致
   const ordered = [...state.photos].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
   placePhotos(ordered, args.seed);
-  setupDock();
   resetShow();
   runShow(args);
 }
@@ -1419,8 +1579,10 @@ function replay() {
 }
 
 function captionText() {
-  if (state.tree) return `${state.tree.ownerName} 的圣诞树`;
-  return state.nickname ? `致 ${state.nickname}` : '';
+  const n = state.tree ? friendCount() : 0;
+  const name = ownerName();
+  if (!name) return '';
+  return n ? `${name} 的圣诞树 · ${n} 位朋友装饰` : `${name} 的圣诞树`;
 }
 
 async function runShow({ featured, prehung }) {
@@ -1444,66 +1606,36 @@ async function runShow({ featured, prehung }) {
   await sleep(0.8);
   ui.caption.textContent = captionText();
   on(ui.caption, !!ui.caption.textContent);
-  await sleep(1.0);
+  await sleep(0.6);
   if (!alive()) return;
 
-  // 3. 已有的朋友照片直接挂上
+  // 3. 照片一张张挂上树
   if (prehung.length) {
     prehung.forEach((p, i) => hangPhoto(p, i * 0.16));
-    await sleep(prehung.length * 0.16 + 1.0);
+    await sleep(prehung.length * 0.16 + 0.9);
     if (!alive()) return;
   }
 
-  // 4. 主角照片逐张展示（手势 / 自动）
+  // 4. 主角照片逐张放大展示，然后飞回树上
   if (featured.length) {
     on(ui.caption, false);
-    let useCam = await askCamera(featured.length === 1);
-    if (!alive()) return;
-    if (useCam) useCam = await startHands();
-    if (!alive()) { stopHands(); return; }
-    mode = useCam ? 'cam' : 'auto';
-    on(ui.caption, false);
-    if (mode === 'cam') {
-      await new Promise((resolveAll) => {
-        camQueue = { list: featured, next: 0, busy: false, resolveAll };
-        updateHint();
-      });
-      camQueue = null;
-      on(ui.hint, false);
-      await sleep(0.4);
-      stopHands();
-    } else {
-      await sleep(0.3);
-      for (let i = 0; i < featured.length; i++) {
-        if (!alive()) return;
-        if (featured.length > 1) {
-          ui.hint.innerHTML = `<b>${i + 1} / ${featured.length}</b>`;
-          on(ui.hint);
-        }
-        await showPhoto(featured[i]);
-        await sleep(0.3);
+    await sleep(0.3);
+    for (let i = 0; i < featured.length; i++) {
+      if (!alive()) return;
+      if (featured.length > 1) {
+        ui.hint.innerHTML = `<b>${i + 1} / ${featured.length}</b>`;
+        on(ui.hint);
       }
-      on(ui.hint, false);
+      await showPhoto(featured[i]);
+      await sleep(0.25);
     }
-    mode = 'none';
+    on(ui.hint, false);
     if (!alive()) return;
     await sleep(0.3);
     featured.forEach((p, i) => hangPhoto(p, i * 0.18));
-    await sleep(featured.length * 0.18 + 1.4);
+    await sleep(featured.length * 0.18 + 1.2);
     on(ui.caption, !!ui.caption.textContent);
     if (!alive()) return;
-  } else {
-    await sleep(0.6);
-  }
-
-  // 5. 上传结果（访客）
-  if (state.uploading) {
-    const r = await state.uploading;
-    state.uploading = null;
-    if (!alive()) return;
-    if (r.ok) toast(`你的照片已经挂在 ${state.tree.ownerName} 的树上了`, 3600);
-    else if (r.full) toast('这棵树刚刚被挂满了，照片没能保存', 4000);
-    else toast('照片没能上传成功：' + (r.error && r.error.message ? r.error.message : '请检查网络'), 4500);
   }
 
   startFinale();
@@ -1572,12 +1704,12 @@ async function startFinale() {
       });
     });
   }
-  await sleep(3.4);
+  await sleep(state.mode === 'visit' ? 2.6 : 3.4);
   if (gen !== generation) return;
   finale = { nextLaunch: clock + 0.3 };
   on(ui.dock);
-  showCard();
-  after(1.2, () => { on(ui.swipeTip); after(4, () => on(ui.swipeTip, false)); });
+  finaleModal();
+  after(0.6, () => { on(ui.swipeTip); after(5, () => on(ui.swipeTip, false)); });
 }
 
 function launchRandomFirework() {
@@ -1595,9 +1727,6 @@ function resetShow() {
   generation++;
   timers = [];
   tweens = [];
-  stopHands();
-  mode = 'none';
-  camQueue = null;
   finale = null;
   textInfo = null;
   reveal = { active: false };
@@ -1608,9 +1737,10 @@ function resetShow() {
   star.target = star.v = star.flash = 0;
   treeGroup.scale.setScalar(1);
   treeGroup.position.y = 0;
-  [ui.caption, ui.dock, ui.hint, ui.ask, ui.card, ui.swipeTip].forEach((el) => on(el, false));
+  [ui.caption, ui.dock, ui.hint, ui.swipeTip, ui.cta, ui.deco].forEach((el) => on(el, false));
+  hideFab();
   textMorph.current = '圣诞快乐';
-  burst.target = burst.v = burst.vel = 0;
+  burst.target = burst.v = burst.vel = burst.kick = burst.hold = 0;
   state.photos.forEach((p) => {
     p.state = 'idle';
     if (p.mesh) p.mesh.visible = false;
@@ -1650,7 +1780,7 @@ function sparkleAt(x, y) {
 
 let drag = null;
 let yawVel = 0;
-const burst = { v: 0, vel: 0, target: 0 };
+const burst = { v: 0, vel: 0, target: 0, kick: 0, hold: 0 };
 const planeZ0 = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 const hitV = new THREE.Vector3();
 function worldAt(x, y, plane) {
@@ -1724,21 +1854,20 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerup', (e) => {
   if (drag && !drag.moved) {
     if (starHit(e.clientX, e.clientY)) starShower();
-    else if (!onTriggerNext()) {
+    else {
       const p = pickPhoto(e.clientX, e.clientY);
       if (p) openLightbox(state.photos.indexOf(p));
     }
+  }
+  if (drag && drag.axis === 'y') {
+    // 松手：先保证完全散开，停留片刻，再慢慢聚回来
+    burst.kick = Math.max(burst.v, 1.05);
+    burst.hold = 0;
   }
   burst.target = 0;
   drag = null;
 });
 canvas.addEventListener('pointercancel', () => { burst.target = 0; drag = null; });
-addEventListener('keydown', (e) => {
-  if (e.code === 'Space' && document.activeElement !== ui.nick) {
-    e.preventDefault();
-    onTriggerNext();
-  }
-});
 
 /* =====================================================================
  * 渲染循环
@@ -1788,9 +1917,16 @@ function frame(now) {
 
   treeGroup.rotation.y += (0.16 + yawVel) * dt;
   yawVel *= Math.exp(-dt * 2.5);
-  // 打散的弹簧：跟手时很快，松手后带一点回弹地复原
-  burst.vel += (burst.target - burst.v) * 70 * dt;
-  burst.vel *= Math.exp(-dt * 10);
+  // 打散：跟手时很快；松手后冲到完全散开 → 停一会 → 像文字一样慢慢聚回
+  let bt, bk, bd;
+  if (burst.target > 0) { bt = burst.target; bk = 60; bd = 10; }
+  else if (burst.kick) {
+    bt = burst.kick; bk = 45; bd = 9;
+    if (burst.v >= burst.kick * 0.96) { burst.kick = 0; burst.hold = clock + 0.8; }
+  } else if (clock < burst.hold) { bt = burst.v; bk = 0; bd = 14; }
+  else { bt = 0; bk = 4.2; bd = 3.9; }
+  burst.vel += (bt - burst.v) * bk * dt;
+  burst.vel *= Math.exp(-dt * bd);
   burst.v += burst.vel * dt;
   U.uBurst.value = Math.max(-0.15, burst.v);
   groundGroup.position.y = treeGroup.position.y + (TREE_BASE - 0.06) * treeGroup.scale.y;
@@ -1839,7 +1975,6 @@ function frame(now) {
   const sc = U.uScatter;
   sc.value += (scatterWanted - sc.value) * (1 - Math.exp(-dt * (scatterWanted > sc.value ? 2.6 : 1.8)));
 
-  if (hands) hands.update();
   if (finale && clock >= finale.nextLaunch) {
     launchRandomFirework();
     finale.nextLaunch = clock + rand(0.7, 1.5) * (IS_MOBILE ? 1.3 : 1);
@@ -1851,6 +1986,16 @@ function frame(now) {
   composer.render();
   renderer.clearDepth();
   renderer.render(photoScene, camera);
+  if (shotRequest) {
+    // 绘制完成后立刻拷贝画面（此时画布里只有场景，没有任何按钮）
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    copy.getContext('2d').drawImage(canvas, 0, 0);
+    const r = shotRequest;
+    shotRequest = null;
+    r(copy);
+  }
 }
 requestAnimationFrame(frame);
 
@@ -1860,24 +2005,40 @@ requestAnimationFrame(frame);
 async function boot() {
   const id = params.get('t');
   if (id) {
+    ui.landing.classList.add('is-off');
     loading('正在打开圣诞树');
     try {
       const tree = await api.getTree(id);
-      if (!tree) {
-        toast('没有找到这棵树，可能链接不完整');
-      } else {
+      if (tree) {
         state.tree = tree;
         state.remote = await api.listPhotos(id);
         state.mode = isMyTree(id) ? 'owner' : 'visit';
+        applyTheme(tree.theme);
+        loading();
+        document.body.classList.remove('booting');
+        const owners = state.remote.filter((r) => r.isOwner).map(remoteToPhoto);
+        const friends = state.remote.filter((r) => !r.isOwner).map(remoteToPhoto);
+        if (state.mode === 'visit') {
+          // 朋友打开：树画出来、照片挂上去，很快就能看到按钮
+          start({ featured: [], prehung: [...owners, ...friends], seed: tree.id });
+        } else {
+          // 主人回来：朋友们挂的照片逐张放大
+          start(friends.length
+            ? { featured: friends, prehung: owners, seed: tree.id }
+            : { featured: owners, prehung: [], seed: tree.id });
+        }
+        return;
       }
+      toast('没有找到这棵树，可能链接不完整');
     } catch (e) {
       console.warn(e);
       toast('圣诞树加载失败，请检查网络后刷新');
     }
     loading();
+    ui.landing.classList.remove('is-off');
   }
   setLanding();
-  if (params.has('demo') && state.mode === 'local') {
+  if (params.has('demo')) {
     ui.nick.value = ui.nick.value || '小雪';
     setTimeout(() => ui.go.click(), 400);
   }

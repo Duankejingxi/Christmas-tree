@@ -17,13 +17,20 @@
   <div class="aurora"><i></i><i></i><i></i></div>
   <div class="vignette"></div>
 
-  <!-- 右上角：声音 -->
+  <!-- 左上角：声音 -->
   <button id="soundBtn" class="corner-btn" aria-label="声音开关" hidden>
     <svg viewBox="0 0 24 24" class="ico-on"><path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.6 7.6 0 0 1 0 11"/></svg>
     <svg viewBox="0 0 24 24" class="ico-off"><path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
   </button>
 
-  <!-- 首页 -->
+  <!-- 右上角：弹窗收起后变成的按钮 -->
+  <button id="fab" class="fab" aria-label="打开">
+    <span class="fab-glow"></span>
+    <svg viewBox="0 0 24 24"><path d="M12 3.5 17 11h-3l4 6H6l4-6H7z"/><path d="M12 17v3.5"/></svg>
+    <span id="fabText"></span>
+  </button>
+
+  <!-- 首页：做自己的树 -->
   <main id="landing" class="landing">
     <p class="eyebrow" id="eyebrow"></p>
     <h1 class="script">Merry Christmas</h1>
@@ -34,6 +41,13 @@
         <input id="nick" type="text" maxlength="12" placeholder="你的名字" autocomplete="off" enterkeyhint="go" />
         <span class="line"></span>
       </label>
+      <p class="field-tip" id="nickTip" hidden>已经帮你填好了，可以修改</p>
+
+      <div class="themes" id="themes" role="radiogroup" aria-label="颜色">
+        <button class="theme on" data-theme="ice" role="radio"><i></i><span>冰雪</span></button>
+        <button class="theme" data-theme="gold" role="radio"><i></i><span>暖金</span></button>
+        <button class="theme" data-theme="pink" role="radio"><i></i><span>樱粉</span></button>
+      </div>
 
       <div class="slots" id="slots">
         <label class="slot add" id="addSlot" aria-label="添加照片">
@@ -41,48 +55,77 @@
           <svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>
         </label>
       </div>
-      <p class="note" id="note">放几张照片进去 · 可选</p>
+      <p class="note" id="note">放几张照片进去 · 可选 · 最多 10 张</p>
 
-      <button id="go" class="cta"><span id="goText">点亮</span><i></i></button>
+      <button id="go" class="btn btn-primary btn-lg"><span id="goText">点亮我的圣诞树</span></button>
       <button id="alt" class="text-link"></button>
     </div>
   </main>
 
-  <!-- 树下的小字 -->
   <div id="caption" class="caption"></div>
-
-  <!-- 是否开启摄像头 -->
-  <div id="ask" class="ask">
-    <p>用手势翻看照片？<span>对着镜头捏合拇指和食指</span></p>
-    <div class="ask-actions">
-      <button id="camYes" class="pill">开启摄像头</button>
-      <button id="camNo" class="text-link">自动播放</button>
-    </div>
-  </div>
-
   <div id="hint" class="hint"></div>
+  <div id="swipeTip" class="swipe-tip">在字上划一下 ✦ 上下拖动树试试</div>
 
-  <div id="cam" class="cam">
-    <canvas id="camCanvas" width="320" height="240"></canvas>
-    <video id="video" playsinline muted></video>
-  </div>
-
-  <!-- 结束后的引导卡片（转发循环） -->
-  <div id="card" class="card-tip">
-    <p id="cardText"></p>
-    <button id="cardBtn" class="pill"></button>
-    <button id="cardClose" class="card-x" aria-label="收起"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-  </div>
-
-  <!-- 结束后的操作 -->
+  <!-- 结束后的小工具栏 -->
   <nav id="dock" class="dock">
     <button data-act="replay"><svg viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v3.6h3.6"/></svg><span>再看一遍</span></button>
     <button data-act="album"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.2"/><rect x="13" y="4" width="7" height="7" rx="1.2"/><rect x="4" y="13" width="7" height="7" rx="1.2"/><rect x="13" y="13" width="7" height="7" rx="1.2"/></svg><span>照片</span></button>
-    <button data-act="invite"><svg viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 13v5.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V13"/></svg><span id="inviteLabel">邀请朋友</span></button>
-    <button data-act="new"><svg viewBox="0 0 24 24"><path d="M12 3.5 17 11h-3l4 6H6l4-6H7z"/><path d="M12 17v3.5"/></svg><span id="newLabel">新的树</span></button>
+    <button data-act="save"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></svg><span>保存图片</span></button>
   </nav>
 
-  <!-- 分享 -->
+  <!-- 主弹窗（居中） -->
+  <div id="cta" class="overlay modal-wrap">
+    <div class="modal" id="ctaCard">
+      <button class="modal-x" id="ctaClose" aria-label="收起"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <div class="fan" id="ctaFan"></div>
+      <p class="script small" id="ctaScript">Merry Christmas</p>
+      <h2 class="modal-title" id="ctaTitle"></h2>
+      <p class="modal-sub" id="ctaSub"></p>
+      <div class="modal-actions">
+        <button id="ctaPrimary" class="btn btn-primary btn-lg"></button>
+        <button id="ctaSecondary" class="btn btn-secondary"></button>
+      </div>
+      <p class="modal-foot" id="ctaFoot"></p>
+    </div>
+  </div>
+
+  <!-- 帮对方装饰（必须完成才能做自己的树） -->
+  <div id="deco" class="overlay modal-wrap">
+    <div class="modal" id="decoCard">
+      <button class="modal-x" id="decoClose" aria-label="收起"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <p class="step"><b>1</b> 帮 TA 装饰 <i></i> <span>2</span> 做你自己的树</p>
+      <h2 class="modal-title" id="decoTitle"></h2>
+      <p class="modal-sub">挂上一张照片，就能制作你自己的圣诞树</p>
+      <label class="slot add deco-slot" id="decoSlot">
+        <input id="decoFile" type="file" accept="image/*" hidden />
+        <img id="decoImg" alt="" hidden />
+        <svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>
+        <em>选一张照片</em>
+      </label>
+      <label class="line-field" id="decoNameField">
+        <input id="decoName" type="text" maxlength="12" placeholder="你的昵称 · 会写在照片上" autocomplete="off" />
+        <span class="line"></span>
+      </label>
+      <p class="field-tip">这个昵称也会用在你自己的圣诞树上</p>
+      <label class="line-field">
+        <input id="decoMsg" type="text" maxlength="30" placeholder="写一句祝福 · 可选" autocomplete="off" />
+        <span class="line"></span>
+      </label>
+      <div class="modal-actions">
+        <button id="decoGo" class="btn btn-primary btn-lg">挂上去，开始做我的树</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 保存图片预览 -->
+  <div id="shotView" class="overlay shot">
+    <button class="close" data-close aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <img id="shotImg" alt="圣诞树图片" />
+    <p class="shot-tip" id="shotTip">长按图片，保存到相册</p>
+    <button id="shotSave" class="btn btn-primary">保存图片</button>
+  </div>
+
+  <!-- 分享（链接 + 二维码） -->
   <div id="sheet" class="overlay">
     <div class="sheet">
       <button class="close" data-close aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
@@ -92,37 +135,12 @@
       <div class="qr" id="qr"></div>
       <div class="link-row">
         <input id="shareLink" readonly />
-        <button id="copyBtn" class="pill small">复制</button>
+        <button id="copyBtn" class="btn btn-primary btn-sm">复制</button>
       </div>
       <div class="sheet-actions">
         <button id="nativeShare" class="text-link" hidden>系统分享 →</button>
-        <button id="openMine" class="text-link" hidden>打开我的共享树 →</button>
       </div>
       <p class="demo-note" id="demoNote" hidden>演示模式：还没有配置云端存储，这个链接只在本机浏览器里有效。</p>
-    </div>
-  </div>
-
-  <!-- 帮朋友挂照片 -->
-  <div id="deco" class="overlay">
-    <div class="sheet">
-      <button class="close" data-close aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-      <h2 class="script small">Decorate</h2>
-      <p class="sheet-title" id="decoTitle"></p>
-      <p class="sheet-sub">挂好之后，就能点亮你自己的圣诞树</p>
-      <label class="slot add deco-slot" id="decoSlot">
-        <input id="decoFile" type="file" accept="image/*" hidden />
-        <img id="decoImg" alt="" hidden />
-        <svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>
-      </label>
-      <label class="line-field" id="decoNameField">
-        <input id="decoName" type="text" maxlength="12" placeholder="你的名字 · 会写在照片上" autocomplete="off" />
-        <span class="line"></span>
-      </label>
-      <label class="line-field">
-        <input id="decoMsg" type="text" maxlength="30" placeholder="写一句祝福 · 可选" autocomplete="off" />
-        <span class="line"></span>
-      </label>
-      <button id="decoGo" class="cta"><span>挂上去</span><i></i></button>
     </div>
   </div>
 
@@ -134,7 +152,7 @@
         <p id="albumTitle"></p>
       </div>
       <div class="album-actions">
-        <button id="zipBtn" class="pill small">全部下载</button>
+        <button id="zipBtn" class="btn btn-secondary btn-sm">全部下载</button>
         <button class="close" data-close aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
     </div>
@@ -161,7 +179,6 @@
   <div id="toast" class="toast"></div>
 
   <noscript><p class="noscript">需要开启 JavaScript 才能看到圣诞树哦。</p></noscript>
-  <div id="swipeTip" class="swipe-tip">在字上划一下 ✦</div>
   <script type="module" src="./js/main.js"></script>
 </body>
 </html>

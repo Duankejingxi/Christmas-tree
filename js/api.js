@@ -34,18 +34,18 @@ async function rest(path, opts = {}) {
 }
 
 const supabaseApi = {
-  async createTree(ownerName) {
+  async createTree(ownerName, theme = 'ice') {
     const id = randomId();
     const ownerKey = randomId(24);
     const rows = await rest('trees', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
-      body: JSON.stringify({ id, owner_name: ownerName, owner_key_hash: await sha256hex(ownerKey) }),
+      body: JSON.stringify({ id, owner_name: ownerName, owner_key_hash: await sha256hex(ownerKey), theme }),
     });
     return { tree: normTree(rows[0]), ownerKey };
   },
   async getTree(id) {
-    const rows = await rest(`trees?id=eq.${encodeURIComponent(id)}&select=id,owner_name,created_at`);
+    const rows = await rest(`trees?id=eq.${encodeURIComponent(id)}&select=id,owner_name,created_at,theme`);
     return rows[0] ? normTree(rows[0]) : null;
   },
   async listPhotos(treeId) {
@@ -73,7 +73,7 @@ const supabaseApi = {
 };
 
 function normTree(r) {
-  return { id: r.id, ownerName: r.owner_name, createdAt: r.created_at };
+  return { id: r.id, ownerName: r.owner_name, createdAt: r.created_at, theme: r.theme || 'ice' };
 }
 function normPhoto(r) {
   return {
@@ -101,11 +101,11 @@ const blobToDataURL = (blob) => new Promise((res, rej) => {
 });
 
 const localApi = {
-  async createTree(ownerName) {
+  async createTree(ownerName, theme = 'ice') {
     const all = loadAll();
     const id = randomId();
     const ownerKey = randomId(24);
-    all[id] = { id, owner_name: ownerName, created_at: new Date().toISOString(), key: ownerKey, photos: [] };
+    all[id] = { id, owner_name: ownerName, created_at: new Date().toISOString(), key: ownerKey, theme, photos: [] };
     saveAll(all);
     return { tree: normTree(all[id]), ownerKey };
   },

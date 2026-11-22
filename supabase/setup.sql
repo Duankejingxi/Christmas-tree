@@ -10,6 +10,10 @@ create table if not exists public.trees (
 );
 -- 主人密钥的哈希：只有知道密钥的人（创建者的浏览器）才能以「主人」身份挂照片
 alter table public.trees add column if not exists owner_key_hash text;
+-- 圣诞树颜色主题
+alter table public.trees add column if not exists theme text not null default 'ice';
+alter table public.trees drop constraint if exists trees_theme_chk;
+alter table public.trees add constraint trees_theme_chk check (theme in ('ice', 'gold', 'pink'));
 
 -- 2) 照片
 create table if not exists public.photos (
