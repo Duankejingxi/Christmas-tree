@@ -53,6 +53,13 @@ const supabaseApi = {
     return rows.map(normPhoto);
   },
   // opts: { ownerKey?, message? }
+  async claimTree(id, hash) {
+    return rest('rpc/claim_tree', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_id: id, p_hash: hash }),
+    });
+  },
   async addPhoto(treeId, nickname, blob, opts = {}) {
     const path = `${treeId}/${Date.now()}-${randomId(6)}.jpg`;
     const up = await fetch(`${base}/storage/v1/object/photos/${path}`, {
@@ -117,6 +124,7 @@ const localApi = {
     const t = loadAll()[treeId];
     return t ? t.photos.map(normPhoto) : [];
   },
+  async claimTree() { return false; },
   async addPhoto(treeId, nickname, blob, opts = {}) {
     const all = loadAll();
     const t = all[treeId];

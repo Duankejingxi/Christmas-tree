@@ -226,19 +226,18 @@ body.booting .landing { pointer-events: none; }
 
 /* 底部工具栏 */
 .dock {
-  position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom));
-  transform: translate(-50%, 12px);
+  position: fixed; left: 0; right: 0; bottom: calc(14px + env(safe-area-inset-bottom));
+  margin: 0 auto; width: max-content;
   display: flex; padding: 4px;
   border-radius: 14px;
-  background: rgba(14, 16, 22, .72);
+  background: rgba(14, 16, 22, .86);
   box-shadow: 0 0 0 1px rgba(242, 233, 216, .08), 0 10px 30px rgba(0, 0, 0, .4);
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-  z-index: 9;
+  z-index: 20;
+  touch-action: manipulation;
 }
-.dock.is-on { transform: translate(-50%, 0); }
 .dock button, .dock .dock-btn { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 60px; padding: 8px 6px 7px; border-radius: 10px; color: var(--cream-dim); cursor: pointer; transition: transform .1s, background .15s, color .15s; -webkit-user-select: none; user-select: none; }
 .dock button:hover, .dock .dock-btn:hover { color: var(--cream); background: rgba(242, 233, 216, .06); }
-.dock button:active, .dock .dock-btn:active { transform: scale(.9); color: var(--cream); background: rgba(242, 233, 216, .12); }
+.dock button:active, .dock .dock-btn:active { color: var(--cream); background: rgba(242, 233, 216, .16); }
 .dock button svg, .dock .dock-btn svg { width: 19px; height: 19px; }
 .dock button span, .dock .dock-btn span { font-size: 11px; letter-spacing: .06em; white-space: nowrap; }
 /* 文件输入框用透明方式藏起来（不用 display:none，部分手机浏览器会点不开） */
@@ -456,7 +455,7 @@ body.booting .landing { pointer-events: none; }
   .nav { display: none; }
   .modal { padding: 28px 20px 20px; }
   .modal-title { font-size: 22px; }
-  .swipe-tip { top: calc(62px + env(safe-area-inset-top)); }
+  .swipe-tip { top: auto; bottom: calc(86px + env(safe-area-inset-bottom)); }
 }
 @media (max-height: 700px) and (orientation: portrait) {
   .lead { display: none; }
@@ -481,8 +480,7 @@ body.booting .landing { pointer-events: none; }
   .modal-title { margin-top: 0; }
   .modal-actions { flex-direction: row; margin-top: 14px; }
   .slot.deco-slot { height: 96px; margin: 8px 0 2px; }
-  .dock { left: auto; right: calc(10px + env(safe-area-inset-right)); bottom: 50%; transform: translateY(50%); flex-direction: column; }
-  .dock.is-on { transform: translateY(50%); }
+  .dock { left: auto; right: calc(10px + env(safe-area-inset-right)); top: 50%; bottom: auto; margin: -150px 0 0; flex-direction: column; }
   .lightbox img, .shot img { max-height: calc(100dvh - 110px); }
 }
 @media (min-width: 900px) and (min-height: 700px) {

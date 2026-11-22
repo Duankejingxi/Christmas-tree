@@ -87,3 +87,16 @@ create policy "photos upload" on storage.objects
 -- 6) 表权限：只允许读和新增（新项目默认不再自动授权）
 revoke all on public.trees, public.photos from anon, authenticated;
 grant select, insert on public.trees, public.photos to anon, authenticated;
+
+-- 7) 旧版本创建的树没有主人密钥：允许（仅一次）补设，之后才能以主人身份加照片
+create or replace function public.claim_tree(p_id text, p_hash text) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  if p_hash is null or char_length(p_hash) <> 64 then return false; end if;
+  update public.trees set owner_key_hash = p_hash where id = p_id and owner_key_hash is null;
+  get diagnostics n = row_count;
+  return n > 0;
+end $$;
+revoke all on function public.claim_tree(text, text) from public;
+grant execute on function public.claim_tree(text, text) to anon, authenticated;

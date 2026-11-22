@@ -70,6 +70,14 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, IS_MOBILE ? 1.5 : 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.autoClear = false;
 
+addEventListener('error', (e) => {
+  const el = document.getElementById('toast');
+  if (el && e.message && !/ResizeObserver/.test(e.message)) {
+    el.textContent = '出错了：' + e.message;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 5000);
+  }
+});
 canvas.addEventListener('webglcontextlost', (e) => {
   e.preventDefault();
   let last = 0;
@@ -445,7 +453,7 @@ function ambientPoints(count, fill, vertexBody, fragBody) {
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     vertexShader: `
-      uniform float uClock, uScale, uPR, uBurst;
+      uniform float uClock, uScale, uPR, uBurst, uIntro;
       attribute vec4 aP;
       attribute vec3 aColor;
       varying vec3 vColor;
@@ -534,6 +542,217 @@ groundGroup.add(ambientPoints(IS_MOBILE ? 1400 : 2800, (i, pos, a, c) => {
 `));
 scene.add(groundGroup);
 
+// 树下的礼物盒（粒子勾勒）
+const giftGroup = new THREE.Group();
+scene.add(giftGroup);
+(function buildGifts() {
+  const boxes = [
+    { x: -2.7, z: 1.9, w: 1.5, d: 1.3, h: 1.15, ry: 0.35, body: '#c0392b', rib: '#f3cf7a' },
+    { x: 2.45, z: 2.1, w: 1.15, d: 1.15, h: 0.85, ry: -0.5, body: '#1f6f54', rib: '#f6e3b0' },
+    { x: -0.55, z: 3.15, w: 0.95, d: 0.95, h: 0.75, ry: 0.8, body: '#e9c46a', rib: '#c0392b' },
+    { x: 1.0, z: 2.9, w: 0.7, d: 0.7, h: 1.0, ry: 0.2, body: '#7a4fb5', rib: '#f3cf7a' },
+  ];
+  const per = IS_MOBILE ? 380 : 620;
+  const total = boxes.length * per;
+  const col = new THREE.Color();
+  return giftGroup.add(ambientPoints(total, (i, pos, a, c) => {
+    const bx = boxes[(i / per) | 0];
+    const r = Math.random();
+    let x, y, z, bright, hex = bx.body;
+    const hw = bx.w / 2, hd = bx.d / 2;
+    if (r < 0.5) { // 面
+      const f = (Math.random() * 5) | 0;
+      if (f === 0) { x = rand(-hw, hw); z = rand(-hd, hd); y = bx.h; }
+      else if (f < 3) { x = f === 1 ? -hw : hw; z = rand(-hd, hd); y = rand(0, bx.h); }
+      else { z = f === 3 ? -hd : hd; x = rand(-hw, hw); y = rand(0, bx.h); }
+      bright = rand(0.45, 0.75);
+    } else if (r < 0.72) { // 棱
+      const e = (Math.random() * 12) | 0;
+      const t = Math.random();
+      const sx = e & 1 ? hw : -hw, sz = e & 2 ? hd : -hd;
+      if (e < 4) { x = sx; z = sz; y = t * bx.h; }
+      else if (e < 8) { x = rand(-hw, hw); z = sz; y = e & 4 ? bx.h : 0; }
+      else { z = rand(-hd, hd); x = sx; y = e & 4 ? bx.h : 0; }
+      bright = rand(0.9, 1.25);
+    } else if (r < 0.9) { // 丝带
+      hex = bx.rib;
+      const t = Math.random();
+      if (t < 0.5) { x = rand(-0.05, 0.05); z = Math.random() < 0.6 ? rand(-hd, hd) : (Math.random() < 0.5 ? -hd : hd); y = z === hd || z === -hd ? rand(0, bx.h) : bx.h; }
+      else { z = rand(-0.05, 0.05); x = Math.random() < 0.6 ? rand(-hw, hw) : (Math.random() < 0.5 ? -hw : hw); y = x === hw || x === -hw ? rand(0, bx.h) : bx.h; }
+      bright = rand(0.8, 1.1);
+    } else { // 蝴蝶结
+      hex = bx.rib;
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const t = Math.random() * TAU;
+      const s = Math.min(bx.w, bx.d) * 0.22;
+      x = side * (s + Math.cos(t) * s);
+      y = bx.h + Math.abs(Math.sin(t)) * s * 0.9;
+      z = Math.sin(t) * s * 0.3;
+      bright = rand(0.8, 1.1);
+    }
+    const cs = Math.cos(bx.ry), sn = Math.sin(bx.ry);
+    pos.set([bx.x + x * cs - z * sn, y + 0.02, bx.z + x * sn + z * cs], i * 3);
+    a.set([rand(0.6, 1.2), Math.random() * TAU, rand(0.6, 2), bright], i * 4);
+    col.set(hex);
+    c.set([col.r, col.g, col.b], i * 3);
+  }, `
+    vec3 p = position;
+    p.xz *= 1.0 + max(uBurst, 0.0) * 0.6;
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mv;
+    float tw = 0.75 + 0.25 * sin(uClock * aP.z + aP.y);
+    gl_PointSize = min(3.4 * aP.x * uPR * (uScale / -mv.z), 20.0 * uPR);
+    vColor = aColor;
+    vAlpha = aP.w * tw * uIntro * 1.3;
+  `, `
+    float a = smoothstep(0.5, 0.0, d);
+    gl_FragColor = vec4(vColor * a * a * vAlpha, 1.0);
+  `));
+})();
+
+// 远处的小松林（两侧，点缀零星灯火）
+scene.add((() => {
+  const trees = [];
+  for (let i = 0; i < 18; i++) {
+    const side = i % 2 ? 1 : -1;
+    trees.push({ x: side * rand(11, 40), z: rand(-38, -14), h: rand(3, 7.5) });
+  }
+  const per = IS_MOBILE ? 110 : 190;
+  return ambientPoints(trees.length * per, (i, pos, a, c) => {
+    const t = trees[(i / per) | 0];
+    const u = 1 - Math.sqrt(Math.random());
+    const ang = Math.random() * TAU;
+    const r = t.h * 0.34 * (1 - u) * rand(0.85, 1);
+    pos.set([t.x + Math.cos(ang) * r, -5.1 + u * t.h, t.z + Math.sin(ang) * r], i * 3);
+    const light = Math.random() < 0.08;
+    a.set([light ? rand(1.6, 2.4) : rand(0.8, 1.3), Math.random() * TAU, rand(0.5, 1.8), light ? 1.0 : rand(0.3, 0.5)], i * 4);
+    if (light) c.set([1, 0.8, 0.5], i * 3);
+    else c.set([0.62, 0.78, 0.95], i * 3);
+  }, `
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    float tw = 0.7 + 0.3 * sin(uClock * aP.z + aP.y);
+    gl_PointSize = min(2.4 * aP.x * uPR * (uScale / -mv.z), 10.0 * uPR);
+    vColor = aColor;
+    vAlpha = aP.w * tw;
+  `, `
+    float a = smoothstep(0.5, 0.0, d);
+    gl_FragColor = vec4(vColor * a * a * vAlpha, 1.0);
+  `);
+})());
+
+// 月亮
+const moonTex = canvasTex(256, (g, S) => {
+  const c = S / 2;
+  const glow = g.createRadialGradient(c, c, S * 0.12, c, c, S / 2);
+  glow.addColorStop(0, 'rgba(255,244,220,.35)');
+  glow.addColorStop(0.5, 'rgba(255,236,200,.08)');
+  glow.addColorStop(1, 'rgba(255,236,200,0)');
+  g.fillStyle = glow;
+  g.fillRect(0, 0, S, S);
+  const disc = g.createRadialGradient(c - 10, c - 12, 4, c, c, S * 0.17);
+  disc.addColorStop(0, '#fffaf0');
+  disc.addColorStop(1, '#e9dcc0');
+  g.fillStyle = disc;
+  g.beginPath(); g.arc(c, c, S * 0.17, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(180,160,130,.18)';
+  [[-12, -8, 9], [10, 6, 6], [-4, 14, 5], [14, -14, 4]].forEach(([dx, dy, r]) => { g.beginPath(); g.arc(c + dx, c + dy, r, 0, Math.PI * 2); g.fill(); });
+});
+const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: moonTex, transparent: true, depthWrite: false, opacity: 0.6, color: 0xc8c0b0 }));
+scene.add(moon);
+function placeMoon() {
+  const z = -40;
+  const d = camera.position.z - z;
+  const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const vh = 2 * t * d, vw = vh * camera.aspect;
+  const portrait = camera.aspect < 0.8;
+  moon.position.set(-vw * (portrait ? 0.3 : 0.36), LOOK.y + vh * (portrait ? 0.4 : 0.36), z);
+  moon.scale.setScalar(vh * (portrait ? 0.13 : 0.17));
+}
+
+/* =====================================================================
+ * 装饰：树上的玻璃彩球、树下的礼物盒、远处的小松林、月亮
+ * ===================================================================== */
+const BAUBLE_SETS = {
+  ice: ['#e8eef7', '#7fb2f0', '#c9a45e', '#b9d7ff', '#f5f5f5'],
+  gold: ['#d9a437', '#b3261e', '#f1d48b', '#8f1d16', '#e9c46a'],
+  pink: ['#f4a6c2', '#cf5f86', '#f3dfc1', '#ffd0e0', '#e88aa8'],
+};
+const baubleTexCache = {};
+function baubleTex(hex) {
+  if (baubleTexCache[hex]) return baubleTexCache[hex];
+  const t = canvasTex(128, (g, S) => {
+    const c = new THREE.Color(hex);
+    const css = (k, a = 1) => `rgba(${Math.round(Math.min(255, c.r * 255 * k))},${Math.round(Math.min(255, c.g * 255 * k))},${Math.round(Math.min(255, c.b * 255 * k))},${a})`;
+    const cx = S / 2, cy = S * 0.56, r = S * 0.4;
+    // 挂绳 + 金属帽
+    g.strokeStyle = 'rgba(230,200,140,.8)';
+    g.lineWidth = 2;
+    g.beginPath(); g.moveTo(cx, 0); g.lineTo(cx, cy - r - 6); g.stroke();
+    g.fillStyle = '#d8b46a';
+    g.fillRect(cx - 7, cy - r - 9, 14, 10);
+    // 球体
+    const body = g.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
+    body.addColorStop(0, css(1.55));
+    body.addColorStop(0.45, css(1));
+    body.addColorStop(1, css(0.35));
+    g.fillStyle = body;
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+    // 反光
+    const hl = g.createRadialGradient(cx - r * 0.38, cy - r * 0.42, 0, cx - r * 0.38, cy - r * 0.42, r * 0.38);
+    hl.addColorStop(0, 'rgba(255,255,255,.95)');
+    hl.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = hl;
+    g.beginPath(); g.arc(cx - r * 0.38, cy - r * 0.42, r * 0.38, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,.35)';
+    g.lineWidth = 2;
+    g.beginPath(); g.arc(cx, cy, r * 0.82, Math.PI * 0.15, Math.PI * 0.55); g.stroke();
+  });
+  baubleTexCache[hex] = t;
+  return t;
+}
+const baubles = [];
+(function buildBaubles() {
+  const rnd = seeded('baubles-2026');
+  const n = IS_MOBILE ? 16 : 22;
+  for (let i = 0; i < n; i++) {
+    const u = 0.06 + (1 - Math.sqrt(rnd())) * 0.8;
+    const ang = rnd() * TAU;
+    const r = TREE_R * (1 - u) + 0.1;
+    const mat = new THREE.SpriteMaterial({ transparent: true, depthWrite: false, opacity: 0 });
+    const sp = new THREE.Sprite(mat);
+    sp.userData = { u, local: new THREE.Vector3(Math.cos(ang) * r, TREE_BASE + u * TREE_H - 0.15, Math.sin(ang) * r), size: (0.62 + rnd() * 0.26) * (1 - u * 0.4), phase: rnd() * TAU, idx: i };
+    treeGroup.add(sp);
+    baubles.push(sp);
+  }
+})();
+function setBaubleTheme(name) {
+  const set = BAUBLE_SETS[name] || BAUBLE_SETS.ice;
+  baubles.forEach((b) => { b.material.map = baubleTex(set[b.userData.idx % set.length]); b.material.needsUpdate = true; });
+}
+setBaubleTheme('ice');
+const bWorld = new THREE.Vector3();
+function updateBaubles() {
+  const reveal = U.uReveal.value;
+  const b = U.uBurst.value;
+  const sc = U.uScatter.value;
+  for (const sp of baubles) {
+    const d = sp.userData;
+    const k = clamp01((reveal - d.u) * 5);
+    sp.position.copy(d.local);
+    const push = 1 + Math.max(0, b) * 1.6 + sc * 0.9;
+    sp.position.x *= push;
+    sp.position.z *= push;
+    sp.position.y += U.uBurstDir.value * Math.max(0, b) * 2 + Math.sin(clock * 1.4 + d.phase) * 0.03;
+    sp.scale.setScalar(Math.max(0.001, d.size * easeOutBack(k)));
+    bWorld.copy(sp.position).applyMatrix4(treeGroup.matrixWorld);
+    const front = smooth(-0.9, 0.9, (bWorld.z - treeGroup.position.z) / (TREE_R * treeGroup.scale.x + 0.3));
+    sp.material.color.setScalar(0.35 + 0.65 * front);
+    sp.material.opacity = k * (0.5 + 0.5 * front) * (1 - sc * 0.6);
+    sp.material.rotation = Math.sin(clock * 1.4 + d.phase) * 0.12;
+  }
+}
+
 /* =====================================================================
  * 烟花 & 声音
  * ===================================================================== */
@@ -592,6 +811,7 @@ function layout() {
   composer.setPixelRatio(renderer.getPixelRatio());
   composer.setSize(w, h);
   if (textInfo) fw.relayoutText(textLayout());
+  if (typeof placeMoon === 'function') placeMoon();
 }
 layout();
 addEventListener('resize', layout);
@@ -903,6 +1123,7 @@ function applyTheme(name) {
   U.uThemeA.value.set(...t.a);
   U.uThemeB.value.set(...t.b);
   U.uTint.value.set(...t.tint);
+  setBaubleTheme(state.theme);
 }
 ui.themes.addEventListener('click', (e) => {
   const b = e.target.closest('.theme');
@@ -933,7 +1154,7 @@ function renderSlots() {
     : '挂在树上的照片 · 可以不放 · 最多 10 张';
 }
 ui.file.addEventListener('change', () => {
-  const files = [...ui.file.files].filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(f.name));
+  const files = [...ui.file.files];
   const room = MAX_LOCAL - state.pending.length;
   if (files.length > room) toast(`最多 ${MAX_LOCAL} 张，已保留前 ${room} 张`);
   files.slice(0, room).forEach((file) => state.pending.push({ file, url: URL.createObjectURL(file) }));
@@ -1162,7 +1383,14 @@ function hideFab() {
   on(ui.fab, false);
   clearInterval(sparkTimer);
 }
-ui.fab.addEventListener('click', () => { if (fabCfg) openCta(fabCfg); });
+let fabAt = 0;
+const openFab = () => {
+  if (performance.now() - fabAt < 500) return;
+  fabAt = performance.now();
+  if (fabCfg) openCta(fabCfg);
+};
+ui.fab.addEventListener('pointerup', () => { ghostUntil = performance.now() + 450; openFab(); });
+ui.fab.addEventListener('click', openFab);
 function dismissCta() {
   if (fabCfg && fabCfg.noFab) {
     // 确认类弹窗：直接关掉，恢复之前右上角的按钮
@@ -1510,19 +1738,42 @@ ui.zipBtn.addEventListener('click', async () => {
 });
 
 /* ---------- 小工具栏 ---------- */
+// 手指抬起就触发（部分手机浏览器在按下时有位移会吞掉 click），click 作为兜底，并去重
 let dockBusy = 0;
-ui.dock.addEventListener('click', (e) => {
-  const b = e.target.closest('button');
-  if (!b) return;
-  const act = b.dataset.act;
-  if (performance.now() - dockBusy < 400) return; // 防止连点
+let dockTap = null;
+// 抬手触发后，浏览器还会补发一次 click，可能落在刚弹出的弹窗背景上把它关掉——短时间内拦掉这类 click
+let ghostUntil = 0;
+document.addEventListener('click', (e) => {
+  if (performance.now() < ghostUntil && !e.target.closest('#dock, #fab')) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+}, true);
+function fireDock(act) {
+  if (!act || performance.now() - dockBusy < 500) return;
   dockBusy = performance.now();
   try {
     runDockAction(act);
   } catch (err) {
     console.warn(err);
-    toast('出了点小问题，再点一次试试');
+    toast('出错了：' + (err && err.message ? err.message : '请重试'));
   }
+}
+ui.dock.addEventListener('pointerdown', (e) => {
+  const b = e.target.closest('button');
+  dockTap = b ? { act: b.dataset.act, x: e.clientX, y: e.clientY } : null;
+});
+ui.dock.addEventListener('pointerup', (e) => {
+  if (dockTap && Math.hypot(e.clientX - dockTap.x, e.clientY - dockTap.y) < 30) {
+    ghostUntil = performance.now() + 450;
+    fireDock(dockTap.act);
+  }
+  dockTap = null;
+});
+ui.dock.addEventListener('pointercancel', () => { dockTap = null; });
+ui.dock.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (b) fireDock(b.dataset.act);
 });
 function runDockAction(act) {
   if (act === 'replay') replay();
@@ -1554,6 +1805,21 @@ function confirmRedo() {
 }
 
 /* ---------- 做好之后继续加照片（主人） ---------- */
+// 旧版本种的树没有主人钥匙：补发一把（服务器只允许补发一次）
+async function claimOwnerKey(tree) {
+  if (!cloudEnabled) return null;
+  try {
+    const key = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(36).padStart(2, '0')).join('').slice(0, 24);
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
+    const hash = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const ok = await api.claimTree(tree.id, hash);
+    if (!ok) return null;
+    rememberMyTree(tree, key);
+    return key;
+  } catch (e) {
+    return null;
+  }
+}
 function ownerKeyFor(id) {
   const t = myTrees().find((x) => x.id === id);
   return t && t.key;
@@ -1561,9 +1827,9 @@ function ownerKeyFor(id) {
 ui.addFile = $('addFile');
 ui.addFile.addEventListener('click', (e) => e.stopPropagation());
 ui.addFile.addEventListener('change', async () => {
-  const files = [...ui.addFile.files].filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(f.name));
+  const files = [...ui.addFile.files];
   ui.addFile.value = '';
-  if (!files.length) return;
+  if (!files.length) { toast('没有选到照片'); return; }
   const room = MAX_LOCAL - state.photos.filter((p) => p.isOwner).length;
   if (room <= 0) { toast(`你自己最多放 ${MAX_LOCAL} 张照片`); return; }
   if (files.length > room) toast(`还能放 ${room} 张，已保留前 ${room} 张`);
@@ -1579,8 +1845,9 @@ async function addOwnerPhotos(files) {
     toast('保存失败：' + (e.message || '请检查网络'));
     return;
   }
+  if (!key) key = await claimOwnerKey(tree);
   if (!key) {
-    toast('这棵树是旧版本种的，不能再加照片了，点「重新种」种一棵新的吧', 4500);
+    toast('这棵树不是在这台设备上种的，没法加照片。可以回到种树的那台手机/浏览器上加', 5000);
     return;
   }
   const name = ownerName();
@@ -2005,8 +2272,33 @@ const centerV = new THREE.Vector3();
 let nextMeteor = 3;
 let last = performance.now();
 let shotHiRes = false;
+// 打开系统相册时暂停 3D 画面并降低分辨率，避免 iPhone 因内存不足重载页面
+let lowMem = false;
+function enterLowMem() {
+  if (lowMem) return;
+  lowMem = true;
+  renderer.setPixelRatio(0.5);
+  layout();
+}
+function exitLowMem() {
+  if (!lowMem) return;
+  lowMem = false;
+  renderer.setPixelRatio(perf.pr);
+  layout();
+}
+document.addEventListener('click', (e) => {
+  if (e.target instanceof HTMLInputElement && e.target.type === 'file') enterLowMem();
+}, true);
+document.addEventListener('change', (e) => {
+  if (e.target instanceof HTMLInputElement && e.target.type === 'file') setTimeout(exitLowMem, 50);
+}, true);
+addEventListener('focus', () => setTimeout(exitLowMem, 400));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(exitLowMem, 400); });
+document.addEventListener('pointerdown', () => { if (lowMem) exitLowMem(); }, true);
+
 function frame(now) {
   requestAnimationFrame(frame);
+  if (lowMem) { last = now; return; }
   if (shotRequest && !shotHiRes) {
     // 截图这一帧用更高的分辨率渲染，图片更清晰
     shotHiRes = true;
@@ -2038,6 +2330,8 @@ function frame(now) {
   burst.v += burst.vel * dt;
   U.uBurst.value = Math.max(-0.15, burst.v);
   groundGroup.position.y = treeGroup.position.y + (TREE_BASE - 0.06) * treeGroup.scale.y;
+  giftGroup.position.y = treeGroup.position.y + TREE_BASE * treeGroup.scale.y;
+  giftGroup.scale.setScalar(treeGroup.scale.x);
   if (clock > nextMeteor) {
     nextMeteor = clock + rand(5, 11);
     const dir = Math.random() < 0.5 ? -1 : 1;
@@ -2079,6 +2373,10 @@ function frame(now) {
   starFlash.material.opacity = star.flash;
   starFlash.scale.setScalar(Math.max(0.001, 2 + (1 - star.flash) * 9));
 
+  updateBaubles();
+  // 竖屏结尾时祝福字在上方，月亮淡出让位
+  const moonTarget = textInfo && camera.aspect < 0.8 ? 0 : 0.6;
+  moon.material.opacity += (moonTarget - moon.material.opacity) * (1 - Math.exp(-dt * 2));
   const scatterWanted = updatePhotos(dt);
   const sc = U.uScatter;
   sc.value += (scatterWanted - sc.value) * (1 - Math.exp(-dt * (scatterWanted > sc.value ? 2.6 : 1.8)));
