@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#02040a" />
+  <title>圣诞树 · 时光相册</title>
+  <meta name="description" content="输入昵称、放进照片，点亮一棵会动的粒子圣诞树，用手势逐张展示回忆。" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎄</text></svg>" />
+  <link rel="stylesheet" href="./css/style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./lib/three/three.module.min.js",
+        "three/addons/": "./lib/three/addons/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <!-- 片尾标题 -->
+  <div id="title" class="title">
+    <div class="merry">Merry Christmas</div>
+    <div class="dear" id="dear"></div>
+  </div>
+
+  <!-- 第一步：昵称 + 照片 -->
+  <section id="setup" class="card setup">
+    <div class="badge">🎄 Christmas · 2026</div>
+    <h1>圣诞树 · 时光相册</h1>
+    <p class="sub">写下你的昵称，放进想珍藏的照片，<br />一起点亮这棵会发光的树 ✨</p>
+
+    <label class="field">
+      <span class="label">你的昵称</span>
+      <input id="nick" type="text" maxlength="12" placeholder="例如：小雪" autocomplete="off" />
+    </label>
+
+    <div class="field">
+      <div class="label row-between">
+        <span>添加照片 <em>（可选，最多 10 张）</em></span>
+        <span id="count" class="count">0 / 10</span>
+      </div>
+      <div id="grid" class="grid">
+        <label class="add" id="addTile" title="添加照片">
+          <input id="file" type="file" accept="image/*" multiple hidden />
+          <span class="plus">＋</span>
+          <span class="add-text">选择照片</span>
+        </label>
+      </div>
+    </div>
+
+    <button id="go" class="btn primary wide">点亮圣诞树</button>
+    <p class="tiny">照片只在你的浏览器里处理，不会上传到任何地方。</p>
+  </section>
+
+  <!-- 第二步：是否开启摄像头 -->
+  <section id="ask" class="card ask hidden">
+    <h2>要开启摄像头互动吗？</h2>
+    <p>开启后对着镜头 <b>捏合拇指和食指 👌</b>，<br />每捏一次，就会出现一张你的照片。</p>
+    <p class="tiny">手势识别全部在本地完成，画面不会上传。</p>
+    <div class="row">
+      <button id="camYes" class="btn primary">开启摄像头</button>
+      <button id="camNo" class="btn ghost">不用，自动播放</button>
+    </div>
+  </section>
+
+  <div id="hint" class="hint hidden"></div>
+
+  <div id="cam" class="cam hidden">
+    <canvas id="camCanvas" width="320" height="240"></canvas>
+    <div id="camStatus" class="cam-status">寻找手势中…</div>
+    <video id="video" playsinline muted></video>
+  </div>
+
+  <div id="loading" class="loading hidden"><div class="spinner"></div><span id="loadingText">加载中…</span></div>
+  <div id="toast" class="toast"></div>
+
+  <div id="end" class="end hidden">
+    <button id="again" class="btn ghost">再看一遍</button>
+    <button id="restart" class="btn primary">重新制作</button>
+  </div>
+
+  <noscript><div class="card setup">需要开启 JavaScript 才能看到圣诞树哦。</div></noscript>
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
