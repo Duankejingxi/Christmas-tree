@@ -1,4 +1,4 @@
-// 共享圣诞树的数据层：自己的服务器（server/server.js）或 localStorage（本机演示）
+// 共享圣诞树的数据层：EdgeOne 云函数 + KV（functions/api/index.js），或 localStorage（本机演示）
 import { API_URL } from './config.js';
 
 export const MAX_FRIENDS = 500; // 朋友人数实际不限，这里只是防刷的安全上限
@@ -51,13 +51,16 @@ async function retry(fn, tries = 3) {
 /* ------------------------------ 自己的服务器 ------------------------------ */
 const base = cloudEnabled ? String(API_URL).replace(/\/+$/, '') : '';
 
-async function call(path, opts = {}, ms = 15000) {
-  const res = await fetchT(`${base}${path}`, opts, ms);
+// 所有请求都走 /api?op=...（EdgeOne 云函数）
+async function call(op, params = {}, opts = {}, ms = 15000) {
+  const q = new URLSearchParams({ op, ...params });
+  const res = await fetchT(`${base}/api?${q}`, opts, ms);
   if (res.ok) return res.status === 204 ? null : res.json();
   let code = '';
   try { code = (await res.json()).error || ''; } catch (e) { /* ignore */ }
   if (code === 'tree_full') throw new TreeFullError();
   if (code === 'nickname_taken') throw new NicknameTakenError();
+  if (code === 'kv_missing') throw new Error('服务器还没开通存储（KV），请联系管理员');
   if (res.status === 429) throw new Error('操作太频繁了，稍等一会儿再试');
   if (res.status === 413) throw new Error('照片太大了');
   if (res.status >= 500) throw new NetworkError('服务器繁忙');
@@ -66,10 +69,10 @@ async function call(path, opts = {}, ms = 15000) {
 
 const serverApi = {
   async ping() {
-    try { await fetchT(`${base}/api/health`, {}, 6000); return true; } catch (e) { return false; }
+    try { await fetchT(`${base}/api?op=health`, {}, 6000); return true; } catch (e) { return false; }
   },
   async createTree(ownerName, theme = 'ice') {
-    const r = await retry(() => call('/api/trees', {
+    const r = await retry(() => call('create', {}, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ownerName, theme }),
@@ -78,29 +81,29 @@ const serverApi = {
   },
   async getTree(id) {
     try {
-      return normTree(await retry(() => call(`/api/trees/${encodeURIComponent(id)}`)));
+      return normTree(await retry(() => call('tree', { t: id })));
     } catch (e) {
       if (e instanceof Error && /no_tree/.test(e.message)) return null;
       throw e;
     }
   },
   async listPhotos(treeId) {
-    const rows = await retry(() => call(`/api/trees/${encodeURIComponent(treeId)}/photos`));
+    const rows = await retry(() => call('photos', { t: treeId }));
     return rows.map(normPhoto);
   },
   async nicknameTaken(treeId, nickname) {
-    const r = await retry(() => call(`/api/trees/${encodeURIComponent(treeId)}/nickname?name=${encodeURIComponent(nickname)}`));
+    const r = await retry(() => call('nick', { t: treeId, name: nickname }));
     return !!r.taken;
   },
   async claimTree() { return false; },
   // opts: { ownerKey?, message?, clientId? } —— clientId 让重试变成幂等的，不会重复存
   async addPhoto(treeId, nickname, blob, opts = {}) {
     opts.clientId = opts.clientId || randomId(20);
-    const q = new URLSearchParams({ nickname, cid: opts.clientId });
-    if (opts.message) q.set('message', opts.message);
+    const params = { t: treeId, nickname, cid: opts.clientId };
+    if (opts.message) params.message = opts.message;
     const headers = { 'Content-Type': 'image/jpeg' };
     if (opts.ownerKey) headers['x-owner-key'] = opts.ownerKey;
-    const row = await retry(() => call(`/api/trees/${encodeURIComponent(treeId)}/photos?${q}`, { method: 'POST', headers, body: blob }, 60000));
+    const row = await retry(() => call('add', params, { method: 'POST', headers, body: blob }, 60000));
     return normPhoto(row);
   },
 };

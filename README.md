@@ -24,35 +24,31 @@
 - 弹窗点 × 收起后，会飞到右上角变成一个发光的按钮，随时可以再点开
 - 做好之后：底部「加照片」可以继续往自己的树上加（你自己最多 10 张），「重新种」可以再种一棵（原来的树会保留）
 
-## 部署到自己的服务器（腾讯云轻量，香港/海外地域 + 自己的域名）
+## 部署到腾讯云 EdgeOne Pages
 
-网页和后端放在同一台服务器上，国内访问不依赖 GitHub 和 Supabase。
+网页是静态文件，后端是 `functions/api/index.js`（EdgeOne Pages 云函数），照片和记录存在 EdgeOne **KV**。
+核心步骤：① 用 GitHub 仓库新建 Pages 项目 → ② 开通并绑定 KV，变量名必须是 `xmas_kv` → ③ 重新部署 → ④ 打开 `/api?op=health` 检查 → ⑤ 绑定自己的域名。
 
-1. **域名解析**：把你的域名（比如 `tree.example.com`）的 A 记录解析到服务器的公网 IP。
-2. **放行端口**：轻量服务器控制台 → 防火墙，添加规则放行 TCP **80** 和 **443**（申请 HTTPS 证书要用）。
-3. **登录服务器**（控制台「登录」按钮，或 SSH），执行：
-   ```bash
-   sudo -i
-   curl -fsSL https://raw.githubusercontent.com/Duankejingxi/Christmas-tree/claude/christmas-tree-photo-gallery-lrv14a/server/deploy.sh -o deploy.sh
-   bash deploy.sh tree.example.com        # 换成你的域名
-   ```
-4. 脚本跑完后，浏览器打开 `https://你的域名` 就能用了。
+- 项目设置：框架预设选「其他 / Other」，构建命令留空（或 `npm run build`），输出目录 `.`
+- KV 绑定变量名：`xmas_kv`（写错了的话，打开 `https://域名/api?op=health` 会显示 `"kv":false`）
+- 检查：`https://你的域名/api?op=health` 返回 `{"ok":true,"kv":true}` 就说明后端和存储都通了
 
-之后更新网站：登录服务器再执行一次 `bash /opt/christmas-tree/server/deploy.sh 你的域名`。
+## 后端规则（functions/api/index.js）
 
-- 数据都在 `/var/lib/christmas-tree`（`db.json` 是树和照片记录，`photos/` 是照片文件），备份这个目录即可。
-- 后端日志：`journalctl -u christmas-api -f`；HTTPS 日志：`journalctl -u caddy -f`。
-- 服务器端限制：每人每小时最多 40 次传照片、30 次建树；单张照片最大 3MB；朋友昵称在每棵树内不能重复。
+- 主人最多 10 张照片（需要建树时生成、只保存在主人浏览器里的密钥）；朋友每人一张，人数不限（安全上限 500）
+- 朋友昵称在每棵树内不能重复，也不能和主人同名（不区分大小写、忽略首尾空格）
+- 照片上传前压缩到 1280px；服务器切成每块 ≤ 60000 字符存进 KV，不依赖 KV 的大值支持
+- 上传带 `cid`，重试不会重复保存
 
 ## 本地预览
 
 ```bash
-# 只看界面（本机演示模式，把 js/config.js 里的 API_URL 改成 null）
-# 完整功能（带后端，一个命令同时提供网页和接口）：
-PORT=8000 node server/server.js   # 然后打开 http://localhost:8000
+node server/dev.js        # 然后打开 http://localhost:8000
 ```
+`server/dev.js` 提供网页，并用同一份 `functions/api/index.js` 处理 `/api`；KV 用本地文件模拟，且故意限制单个值 ≤ 128KB。
+只想看界面、不连后端：把 `js/config.js` 里的 `API_URL` 改成 `null`（本机演示模式）。
 
 ## 技术
 
-Three.js（自定义粒子着色器 + Bloom）· WebAudio（实时合成）· 一个零依赖的 Node 后端（`server/server.js`）+ Caddy 自动 HTTPS。
+Three.js（自定义粒子着色器 + Bloom）· WebAudio（实时合成）· EdgeOne Pages 云函数 + KV。
 所有依赖都放在仓库里（`lib/`、`assets/`），不依赖国外 CDN。
