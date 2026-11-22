@@ -493,3 +493,7 @@ body.booting .landing { pointer-events: none; }
 
 #deco .field-tip.err { color: var(--red); font-weight: 700; }
 #deco .line-field.err input { border-color: var(--red); }
+
+/* 「选照片」按钮：整个按钮就是文件输入框，手机上最可靠 */
+label.btn { cursor: pointer; }
+label.btn input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 0; }

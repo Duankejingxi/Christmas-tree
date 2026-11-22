@@ -830,6 +830,7 @@ const state = {
   pending: [], // 首页选择的照片 {file, url}
   uploading: null,
   shareP: null,
+  addStepDone: false,
   theme: 'ice',
 };
 
@@ -1181,7 +1182,7 @@ function runTimers(dt) {
 const ui = {};
 ['landing', 'eyebrow', 'headline', 'lead', 'form', 'nickField', 'nick', 'nickTip', 'themes', 'slots', 'addSlot', 'file', 'note', 'go', 'goText', 'alt',
   'caption', 'hint', 'swipeTip', 'dock', 'fab', 'fabText',
-  'cta', 'ctaCard', 'ctaClose', 'ctaFan', 'ctaScript', 'ctaTitle', 'ctaSub', 'ctaPrimary', 'ctaSecondary', 'ctaFoot',
+  'cta', 'ctaCard', 'ctaClose', 'ctaFan', 'ctaPick', 'ctaPickText', 'pickFile', 'ctaScript', 'ctaTitle', 'ctaSub', 'ctaPrimary', 'ctaSecondary', 'ctaFoot',
   'deco', 'decoCard', 'decoClose', 'decoTitle', 'decoSlot', 'decoFile', 'decoImg', 'decoNameField', 'decoName', 'decoMsg', 'decoGo',
   'shotView', 'shotImg', 'shotTip', 'shotSave',
   'sheet', 'sheetTitle', 'sheetSub', 'qr', 'shareLink', 'copyBtn', 'nativeShare', 'demoNote',
@@ -1411,8 +1412,14 @@ function openCta(cfg) {
   ui.ctaScript.textContent = cfg.label || '圣诞明信片';
   ui.ctaTitle.innerHTML = cfg.title;
   ui.ctaSub.innerHTML = cfg.sub || '';
-  ui.ctaPrimary.textContent = cfg.primary[0];
-  ui.ctaPrimary.onclick = cfg.primary[1];
+  // cfg.pick：主按钮换成「选照片」（整个按钮就是文件输入框）
+  ui.ctaPick.hidden = !cfg.pick;
+  ui.ctaPrimary.hidden = !!cfg.pick;
+  if (cfg.pick) ui.ctaPickText.textContent = cfg.pick;
+  if (cfg.primary) {
+    ui.ctaPrimary.textContent = cfg.primary[0];
+    ui.ctaPrimary.onclick = cfg.primary[1];
+  }
   ui.ctaSecondary.hidden = !cfg.secondary;
   if (cfg.secondary) {
     ui.ctaSecondary.textContent = cfg.secondary[0];
@@ -1510,7 +1517,33 @@ ui.cta.addEventListener('click', (e) => { if (e.target === ui.cta) dismissCta();
 function photoSrcs(filter) {
   return state.photos.filter(filter).map((p) => p.src);
 }
+// 新种的树：先让主人给树挂照片，挂完（或跳过）再出现「复制链接」
+function openAddStep() {
+  openCta({
+    label: '你的树',
+    fan: photoSrcs(() => true),
+    title: '给你的树<br>挂上照片',
+    sub: '选几张想挂在树上的照片，最多 10 张。<br>朋友打开链接，会先看到它们。',
+    pick: '选照片',
+    secondary: ['先不放，直接寄出去', () => { state.addStepDone = true; finaleModal(); }],
+    fab: '挂照片',
+  });
+}
+ui.pickFile.addEventListener('click', (e) => e.stopPropagation());
+ui.pickFile.addEventListener('change', async () => {
+  const files = [...ui.pickFile.files];
+  ui.pickFile.value = '';
+  if (!files.length) return;
+  const room = MAX_LOCAL - state.photos.filter((p) => p.isOwner).length;
+  if (files.length > room) toast(`最多放 ${MAX_LOCAL} 张，已保留前 ${room} 张`);
+  on(ui.cta, false);
+  hideFab();
+  const result = await addOwnerPhotos(files.slice(0, Math.max(1, room)));
+  if (result === 'ok') { state.addStepDone = true; finaleModal(); }
+  else if (result === 'error') openAddStep(); // 没加成功：回到这一步，可以再选
+});
 function finaleModal() {
+  if (state.mode === 'local' && !state.addStepDone) { openAddStep(); return; }
   if (state.mode === 'visit') {
     const owner = esc(state.tree.ownerName);
     const done = hasDecorated(state.tree.id);
@@ -2030,12 +2063,12 @@ async function addOwnerPhotos(files) {
     tree = state.mode === 'local' ? await ensureShared(state.photos.filter((p) => p.isOwner)) : state.tree;
     key = ownerKeyFor(tree.id);
   } catch (e) {
-    toast('保存失败：' + (e.message || '请检查网络'));
-    return;
+    toast('保存失败：' + (await netReason(e)), 5000);
+    return 'error';
   }
   if (!key) {
     toast('这棵树不是在这台设备上种的，没法加照片。可以回到种树的那台手机/浏览器上加', 5000);
-    return;
+    return 'error';
   }
   const name = ownerName();
   loading('正在添加照片');
@@ -2045,7 +2078,7 @@ async function addOwnerPhotos(files) {
   }));
   loading();
   const added = prepared.filter(Boolean);
-  if (!added.length) { toast('照片读取失败，换一张试试'); return; }
+  if (!added.length) { toast('照片读取失败，换一张试试'); return 'error'; }
   // 后台上传
   const uploadOne = async (p) => {
     p._up = p._up || { blob: await compressImage(p.blob), opts: { ownerKey: key } };
@@ -2063,25 +2096,27 @@ async function addOwnerPhotos(files) {
     insertPhoto(p, used);
     if (p.slot) used.push(p.slot);
   });
-  if (added.length === 1) {
-    // 一张：快速放大一下再挂上
-    await showPhoto(added[0], true);
-    if (gen !== generation) return;
-    hangPhoto(added[0], 0);
+  if (added.length <= 3) {
+    // 少量照片：逐张快速放大一下再挂上
+    for (const p of added) {
+      await showPhoto(p, true);
+      if (gen !== generation) return 'cancel';
+      hangPhoto(p, 0);
+    }
   } else {
     // 多张：直接依次弹上树
     added.forEach((p, i) => hangPhoto(p, i * 0.12));
   }
   await sleep(0.5);
-  if (gen !== generation) return;
+  if (gen !== generation) return 'cancel';
   on(ui.dock);
   const res = await Promise.allSettled(uploads);
-  if (gen !== generation) return;
+  if (gen !== generation) return 'cancel';
   const failed = added.filter((p, i) => res[i].status === 'rejected');
-  if (!failed.length) { toast('加好了，朋友打开就能看到'); return; }
+  if (!failed.length) { toast('加好了，朋友打开就能看到'); return 'ok'; }
   if (res.some((r) => r.status === 'rejected' && r.reason instanceof TreeFullError)) {
     toast('你自己最多放 10 张照片，多出的没有保存');
-    return;
+    return 'ok';
   }
   // 网络问题：给出原因和「再试一次」
   const firstErr = res.find((r) => r.status === 'rejected').reason;
@@ -2103,6 +2138,7 @@ async function addOwnerPhotos(files) {
     });
   };
   showFail(failed, firstErr);
+  return 'failcard';
 }
 
 /* ---------- 声音 ---------- */

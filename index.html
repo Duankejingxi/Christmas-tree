@@ -49,13 +49,13 @@
         <button class="theme" data-theme="pink" role="radio"><i></i><span>樱粉</span></button>
       </div>
 
-      <div class="slots" id="slots">
+      <div class="slots" id="slots" hidden>
         <label class="slot add" id="addSlot" aria-label="添加照片">
           <input id="file" type="file" accept="image/*" multiple hidden />
           <svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>
         </label>
       </div>
-      <p class="note" id="note">挂在树上的照片 · 可以不放 · 最多 10 张</p>
+      <p class="note" id="note" hidden>挂在树上的照片 · 可以不放 · 最多 10 张</p>
 
       <button id="go" class="btn btn-primary btn-lg"><span id="goText">种下这棵树</span><i class="arr"></i></button>
       <button id="alt" class="text-link"></button>
@@ -87,6 +87,7 @@
       <h2 class="modal-title" id="ctaTitle"></h2>
       <p class="modal-sub" id="ctaSub"></p>
       <div class="modal-actions">
+        <label id="ctaPick" class="btn btn-primary btn-lg" hidden><span id="ctaPickText"></span><input id="pickFile" type="file" accept="image/*" multiple /></label>
         <button id="ctaPrimary" class="btn btn-primary btn-lg"></button>
         <button id="ctaSecondary" class="btn btn-secondary"></button>
       </div>
