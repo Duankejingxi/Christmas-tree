@@ -3,86 +3,131 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-  <meta name="theme-color" content="#02040a" />
-  <title>圣诞树 · 时光相册</title>
-  <meta name="description" content="输入昵称、放进照片，点亮一棵会动的粒子圣诞树，用手势逐张展示回忆。" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎄</text></svg>" />
+  <meta name="theme-color" content="#03050b" />
+  <title>Merry Christmas · 圣诞树</title>
+  <meta name="description" content="点亮一棵会发光的粒子圣诞树，挂上照片，邀请朋友一起来装饰。" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✨</text></svg>" />
   <link rel="stylesheet" href="./css/style.css" />
   <script type="importmap">
-    {
-      "imports": {
-        "three": "./lib/three/three.module.min.js",
-        "three/addons/": "./lib/three/addons/"
-      }
-    }
+    { "imports": { "three": "./lib/three/three.module.min.js", "three/addons/": "./lib/three/addons/" } }
   </script>
 </head>
-<body>
+<body class="booting">
   <canvas id="scene"></canvas>
+  <div class="vignette"></div>
 
-  <!-- 片尾标题 -->
-  <div id="title" class="title">
-    <div class="merry">Merry Christmas</div>
-    <div class="dear" id="dear"></div>
-  </div>
+  <!-- 右上角：声音 -->
+  <button id="soundBtn" class="corner-btn" aria-label="声音开关" hidden>
+    <svg viewBox="0 0 24 24" class="ico-on"><path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.6 7.6 0 0 1 0 11"/></svg>
+    <svg viewBox="0 0 24 24" class="ico-off"><path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+  </button>
 
-  <!-- 第一步：昵称 + 照片 -->
-  <section id="setup" class="card setup">
-    <div class="badge">🎄 Christmas · 2026</div>
-    <h1>圣诞树 · 时光相册</h1>
-    <p class="sub">写下你的昵称，放进想珍藏的照片，<br />一起点亮这棵会发光的树 ✨</p>
+  <!-- 首页 -->
+  <main id="landing" class="landing">
+    <p class="eyebrow" id="eyebrow"></p>
+    <h1 class="script">Merry Christmas</h1>
+    <p class="lead" id="lead">点亮一棵属于你的圣诞树</p>
 
-    <label class="field">
-      <span class="label">你的昵称</span>
-      <input id="nick" type="text" maxlength="12" placeholder="例如：小雪" autocomplete="off" />
-    </label>
+    <div class="form" id="form">
+      <label class="line-field" id="nickField">
+        <input id="nick" type="text" maxlength="12" placeholder="你的名字" autocomplete="off" enterkeyhint="go" />
+        <span class="line"></span>
+      </label>
 
-    <div class="field">
-      <div class="label row-between">
-        <span>添加照片 <em>（可选，最多 10 张）</em></span>
-        <span id="count" class="count">0 / 10</span>
-      </div>
-      <div id="grid" class="grid">
-        <label class="add" id="addTile" title="添加照片">
+      <div class="slots" id="slots">
+        <label class="slot add" id="addSlot" aria-label="添加照片">
           <input id="file" type="file" accept="image/*" multiple hidden />
-          <span class="plus">＋</span>
-          <span class="add-text">选择照片</span>
+          <svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>
         </label>
       </div>
+      <p class="note" id="note">放几张照片进去 · 可选</p>
+
+      <button id="go" class="cta"><span id="goText">点亮</span><i></i></button>
+      <button id="alt" class="text-link"></button>
     </div>
+  </main>
 
-    <button id="go" class="btn primary wide">点亮圣诞树</button>
-    <p class="tiny">照片只在你的浏览器里处理，不会上传到任何地方。</p>
-  </section>
+  <!-- 树下的小字 -->
+  <div id="caption" class="caption"></div>
 
-  <!-- 第二步：是否开启摄像头 -->
-  <section id="ask" class="card ask hidden">
-    <h2>要开启摄像头互动吗？</h2>
-    <p>开启后对着镜头 <b>捏合拇指和食指 👌</b>，<br />每捏一次，就会出现一张你的照片。</p>
-    <p class="tiny">手势识别全部在本地完成，画面不会上传。</p>
-    <div class="row">
-      <button id="camYes" class="btn primary">开启摄像头</button>
-      <button id="camNo" class="btn ghost">不用，自动播放</button>
+  <!-- 是否开启摄像头 -->
+  <div id="ask" class="ask">
+    <p>用手势翻看照片？<span>对着镜头捏合拇指和食指</span></p>
+    <div class="ask-actions">
+      <button id="camYes" class="pill">开启摄像头</button>
+      <button id="camNo" class="text-link">自动播放</button>
     </div>
-  </section>
+  </div>
 
-  <div id="hint" class="hint hidden"></div>
+  <div id="hint" class="hint"></div>
 
-  <div id="cam" class="cam hidden">
+  <div id="cam" class="cam">
     <canvas id="camCanvas" width="320" height="240"></canvas>
-    <div id="camStatus" class="cam-status">寻找手势中…</div>
     <video id="video" playsinline muted></video>
   </div>
 
-  <div id="loading" class="loading hidden"><div class="spinner"></div><span id="loadingText">加载中…</span></div>
-  <div id="toast" class="toast"></div>
+  <!-- 结束后的操作 -->
+  <nav id="dock" class="dock">
+    <button data-act="replay"><svg viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v3.6h3.6"/></svg><span>再看一遍</span></button>
+    <button data-act="album"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.2"/><rect x="13" y="4" width="7" height="7" rx="1.2"/><rect x="4" y="13" width="7" height="7" rx="1.2"/><rect x="13" y="13" width="7" height="7" rx="1.2"/></svg><span>照片</span></button>
+    <button data-act="invite"><svg viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 13v5.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V13"/></svg><span id="inviteLabel">邀请朋友</span></button>
+    <button data-act="new"><svg viewBox="0 0 24 24"><path d="M12 3.5 17 11h-3l4 6H6l4-6H7z"/><path d="M12 17v3.5"/></svg><span id="newLabel">新的树</span></button>
+  </nav>
 
-  <div id="end" class="end hidden">
-    <button id="again" class="btn ghost">再看一遍</button>
-    <button id="restart" class="btn primary">重新制作</button>
+  <!-- 分享 -->
+  <div id="sheet" class="overlay">
+    <div class="sheet">
+      <button class="close" data-close aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <h2 class="script small">Share the joy</h2>
+      <p class="sheet-title" id="sheetTitle">邀请朋友来装饰你的树</p>
+      <p class="sheet-sub" id="sheetSub">每位朋友可以挂上一张照片，最多 10 位</p>
+      <div class="qr" id="qr"></div>
+      <div class="link-row">
+        <input id="shareLink" readonly />
+        <button id="copyBtn" class="pill small">复制</button>
+      </div>
+      <div class="sheet-actions">
+        <button id="nativeShare" class="text-link" hidden>系统分享 →</button>
+        <button id="openMine" class="text-link" hidden>打开我的共享树 →</button>
+      </div>
+      <p class="demo-note" id="demoNote" hidden>演示模式：还没有配置云端存储，这个链接只在本机浏览器里有效。</p>
+    </div>
   </div>
 
-  <noscript><div class="card setup">需要开启 JavaScript 才能看到圣诞树哦。</div></noscript>
+  <!-- 相册 -->
+  <div id="album" class="overlay album">
+    <div class="album-head">
+      <div>
+        <h2 class="script small">Memories</h2>
+        <p id="albumTitle"></p>
+      </div>
+      <div class="album-actions">
+        <button id="zipBtn" class="pill small">全部下载</button>
+        <button class="close" data-close aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+    </div>
+    <div class="album-grid" id="albumGrid"></div>
+  </div>
+
+  <!-- 大图 -->
+  <div id="lightbox" class="overlay lightbox">
+    <button class="close" data-close aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <button class="nav prev" id="lbPrev" aria-label="上一张"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button class="nav next" id="lbNext" aria-label="下一张"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+    <figure>
+      <img id="lbImg" alt="" />
+      <figcaption>
+        <span class="who" id="lbWho"></span>
+        <span class="when" id="lbWhen"></span>
+        <button id="lbDownload" class="text-link">下载 ↓</button>
+      </figcaption>
+    </figure>
+  </div>
+
+  <div id="loading" class="loading"><i></i><span id="loadingText"></span></div>
+  <div id="toast" class="toast"></div>
+
+  <noscript><p class="noscript">需要开启 JavaScript 才能看到圣诞树哦。</p></noscript>
   <script type="module" src="./js/main.js"></script>
 </body>
 </html>
