@@ -705,7 +705,8 @@ const hungHeight = () => {
   return n <= 3 ? 1.95 : n <= 6 ? 1.68 : n <= 10 ? 1.45 : n <= 15 ? 1.26 : 1.12;
 };
 
-function showPhoto(p) {
+function showPhoto(p, quick = false) {
+  p.dur = quick ? [0.45, 0.55, 0.55] : [SHOW_IN, SHOW_HOLD, SHOW_OUT];
   return new Promise((resolve) => {
     p.state = 'show';
     p.t = 0;
@@ -720,7 +721,7 @@ function hangPhoto(p, delay) {
   p.mesh.visible = false;
 }
 
-const SHOW_IN = 0.8, SHOW_HOLD = 2.0, SHOW_OUT = 1.0;
+const SHOW_IN = 0.8, SHOW_HOLD = 2.0, SHOW_OUT = 1.0; // 默认展示节奏
 const tmpV = new THREE.Vector3();
 const tmpV2 = new THREE.Vector3();
 
@@ -747,6 +748,7 @@ function updatePhotos(dt) {
     if (p.state === 'show') {
       p.t += dt;
       const t = p.t;
+      const [SHOW_IN, SHOW_HOLD, SHOW_OUT] = p.dur || [0.8, 2.0, 1.0];
       const showH = Math.min(visH * 0.6, (visW * 0.78) / p.aspect);
       m.material.color.setScalar(1);
       if (t < SHOW_IN) {
@@ -1544,13 +1546,13 @@ async function addOwnerPhotos(files) {
     return;
   }
   const name = ownerName();
-  const added = [];
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
+  loading('正在添加照片');
+  const prepared = await Promise.all(files.map(async (f, i) => {
     const p = { nickname: name, src: URL.createObjectURL(f), blob: f, isOwner: true, createdAt: new Date(Date.now() + i).toISOString() };
-    try { await preparePhoto(p); } catch (e) { continue; }
-    added.push(p);
-  }
+    try { await preparePhoto(p); return p; } catch (e) { return null; }
+  }));
+  loading();
+  const added = prepared.filter(Boolean);
   if (!added.length) { toast('照片读取失败，换一张试试'); return; }
   // 后台上传
   const uploads = added.map(async (p) => {
@@ -1564,14 +1566,20 @@ async function addOwnerPhotos(files) {
   on(ui.cta, false);
   added.forEach((p) => { state.photos.push(p); showArgs.prehung.push(p); });
   placePhotos([...state.photos].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)), showArgs.seed);
-  for (const p of added) {
+  if (added.length === 1) {
+    // 一张：快速放大一下再挂上
+    await showPhoto(added[0], true);
     if (gen !== generation) return;
-    await showPhoto(p);
-    hangPhoto(p, 0.05);
+    hangPhoto(added[0], 0);
+  } else {
+    // 多张：直接依次弹上树
+    added.forEach((p, i) => hangPhoto(p, i * 0.12));
   }
-  const res = await Promise.allSettled(uploads);
+  await sleep(0.5);
   if (gen !== generation) return;
   on(ui.dock);
+  const res = await Promise.allSettled(uploads);
+  if (gen !== generation) return;
   const bad = res.filter((r) => r.status === 'rejected');
   if (!bad.length) toast(`已加上 ${added.length} 张照片，朋友打开也能看到 ✨`);
   else if (bad.some((r) => r.reason instanceof TreeFullError)) toast('你自己最多放 10 张照片，多出的没有保存');
@@ -1982,9 +1990,9 @@ function frame(now) {
   if (burst.target > 0) { bt = burst.target; bk = 60; bd = 10; }
   else if (burst.kick) {
     bt = burst.kick; bk = 45; bd = 9;
-    if (burst.v >= burst.kick * 0.96) { burst.kick = 0; burst.hold = clock + 0.8; }
+    if (burst.v >= burst.kick * 0.96) { burst.kick = 0; burst.hold = clock + 0.3; }
   } else if (clock < burst.hold) { bt = burst.v; bk = 0; bd = 14; }
-  else { bt = 0; bk = 4.2; bd = 3.9; }
+  else { bt = 0; bk = 10; bd = 6.2; }
   burst.vel += (bt - burst.v) * bk * dt;
   burst.vel *= Math.exp(-dt * bd);
   burst.v += burst.vel * dt;
