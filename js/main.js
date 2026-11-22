@@ -543,7 +543,7 @@ const ICE_SPARK = C(['#e8f6ff', '#bfe4ff', '#fff6dc']);
 /* =====================================================================
  * 布局
  * ===================================================================== */
-const FINALE_SCALE = 0.66, FINALE_Y = -1.15;
+let FINALE_SCALE = 0.7, FINALE_Y = -0.95;
 let textInfo = null;
 function textLayout() {
   const aspect = textInfo ? textInfo.aspect : 4;
@@ -560,9 +560,12 @@ function layout() {
   camera.aspect = aspect;
   const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
   const wide = clamp01((aspect - 0.9) / 0.6);
-  const halfH = 7.6 + 0.5 * wide;
-  LOOK.set(0, 0.2 - 0.75 * wide, 0);
-  const dist = Math.max(halfH / t, 5.0 / (t * aspect));
+  const halfH = 6.8 + 0.4 * wide;
+  LOOK.set(0, 0.15 - 0.6 * wide, 0);
+  const dist = Math.max(halfH / t, 4.45 / (t * aspect));
+  // 结尾时树缩小让出祝福字的位置：竖屏上方空间多，缩得少一些
+  FINALE_SCALE = aspect < 0.8 ? 0.82 : aspect < 1.2 ? 0.76 : 0.74;
+  FINALE_Y = -4.45 - TREE_BASE * FINALE_SCALE;
   camera.position.set(0, LOOK.y + 0.6, dist);
   camera.lookAt(LOOK);
   camera.updateProjectionMatrix();
@@ -573,6 +576,7 @@ function layout() {
   U.uScale.value = dist * Math.max(0.55, treePx / 620);
   U.uPR.value = renderer.getPixelRatio();
   renderer.setSize(w, h);
+  composer.setPixelRatio(renderer.getPixelRatio());
   composer.setSize(w, h);
   if (textInfo) fw.relayoutText(textLayout());
 }
@@ -698,7 +702,7 @@ function placePhotos(list, seed) {
 
 const hungHeight = () => {
   const n = state.photos.length;
-  return n <= 3 ? 1.7 : n <= 6 ? 1.45 : n <= 10 ? 1.25 : n <= 15 ? 1.1 : 1.0;
+  return n <= 3 ? 1.95 : n <= 6 ? 1.68 : n <= 10 ? 1.45 : n <= 15 ? 1.26 : 1.12;
 };
 
 function showPhoto(p) {
@@ -1178,7 +1182,7 @@ function finaleModal() {
       title: state.mode === 'owner' && n ? `已经有 <b>${n}</b> 位朋友<br>帮你装饰了圣诞树` : '你的圣诞树做好啦',
       sub: `把链接发给朋友，让他们来帮你装饰<br>每人挂一张照片 · 最多 ${MAX_FRIENDS} 位`,
       primary: ['复制链接 · 邀请朋友', inviteFriends],
-      secondary: ['保存圣诞树图片', saveShot],
+      secondary: ['保存我的圣诞树', saveShot],
       foot: '<button class="text-link" id="qrLink">显示二维码</button>',
       fab: '邀请朋友',
     });
@@ -1298,9 +1302,7 @@ async function saveShot() {
   loading('正在生成图片');
   try {
     const frameCanvas = await captureFrame();
-    let link = '';
-    try { link = state.tree ? shareLinkFor(state.tree.id) : await myLink(); } catch (e) { /* 没有链接也能保存 */ }
-    const blob = await composePoster(frameCanvas, link);
+    const blob = await new Promise((res) => frameCanvas.toBlob(res, 'image/jpeg', 0.95));
     shotBlob = blob;
     if (ui.shotImg.src) URL.revokeObjectURL(ui.shotImg.src);
     ui.shotImg.src = URL.createObjectURL(blob);
@@ -1313,61 +1315,13 @@ async function saveShot() {
   }
   loading();
 }
-async function composePoster(src, link) {
-  const W = src.width, H = src.height;
-  const cv = document.createElement('canvas');
-  cv.width = W;
-  cv.height = H;
-  const g = cv.getContext('2d');
-  g.drawImage(src, 0, 0);
-  const u = Math.min(W, H) / 100;
-  // 底部渐变 + 文字
-  const grd = g.createLinearGradient(0, H * 0.72, 0, H);
-  grd.addColorStop(0, 'rgba(3,5,11,0)');
-  grd.addColorStop(1, 'rgba(3,5,11,0.85)');
-  g.fillStyle = grd;
-  g.fillRect(0, H * 0.72, W, H * 0.28);
-  const qrSize = link ? Math.round(u * 17) : 0;
-  const pad = Math.round(u * 5);
-  g.textBaseline = 'alphabetic';
-  g.textAlign = 'left';
-  g.fillStyle = '#fff1cc';
-  g.shadowColor = 'rgba(255,200,110,.6)';
-  g.shadowBlur = u * 2;
-  g.font = `${Math.round(u * 9)}px "Great Vibes", cursive`;
-  g.fillText('Merry Christmas', pad, H - pad - u * 6.5);
-  g.shadowBlur = 0;
-  g.fillStyle = 'rgba(246,241,231,.8)';
-  g.font = `${Math.round(u * 3.4)}px "Songti SC","Noto Serif SC",serif`;
-  g.fillText(`${ownerName()} 的圣诞树 · ${countdownText()}`, pad, H - pad);
-  if (link) {
-    try {
-      await loadScript('./lib/vendor/qrcode.js');
-      const qr = window.qrcode(0, 'M');
-      qr.addData(link);
-      qr.make();
-      const img = await loadImage(qr.createDataURL(8, 0));
-      const x = W - pad - qrSize, y = H - pad - qrSize - u * 4.5;
-      g.fillStyle = '#f5f0e6';
-      g.fillRect(x - u * 1.2, y - u * 1.2, qrSize + u * 2.4, qrSize + u * 2.4);
-      g.imageSmoothingEnabled = false;
-      g.drawImage(img, x, y, qrSize, qrSize);
-      g.imageSmoothingEnabled = true;
-      g.textAlign = 'center';
-      g.fillStyle = 'rgba(246,241,231,.85)';
-      g.font = `${Math.round(u * 2.6)}px sans-serif`;
-      g.fillText(state.mode === 'visit' ? '扫码一起装饰' : '扫码帮我装饰', x + qrSize / 2, H - pad);
-    } catch (e) { /* 没有二维码也没关系 */ }
-  }
-  return new Promise((res) => cv.toBlob(res, 'image/png'));
-}
 ui.shotSave.addEventListener('click', async () => {
   if (!shotBlob) return;
-  const file = new File([shotBlob], 'christmas-tree.png', { type: 'image/png' });
+  const file = new File([shotBlob], 'christmas-tree.jpg', { type: 'image/jpeg' });
   if (navigator.canShare && navigator.canShare({ files: [file] }) && IS_MOBILE) {
     try { await navigator.share({ files: [file], title: 'Merry Christmas' }); return; } catch (e) { /* 用户取消 */ return; }
   }
-  saveBlob(shotBlob, 'christmas-tree.png');
+  saveBlob(shotBlob, 'christmas-tree.jpg');
 });
 
 /* ---------- 分享（链接 + 二维码） ---------- */
@@ -1905,8 +1859,15 @@ function placeCaption() {
 const centerV = new THREE.Vector3();
 let nextMeteor = 3;
 let last = performance.now();
+let shotHiRes = false;
 function frame(now) {
   requestAnimationFrame(frame);
+  if (shotRequest && !shotHiRes) {
+    // 截图这一帧用更高的分辨率渲染，图片更清晰
+    shotHiRes = true;
+    renderer.setPixelRatio(Math.min(3, Math.max(2, devicePixelRatio)));
+    layout();
+  }
   const rawDt = Math.max(0, (now - last) / 1000);
   const dt = Math.min(0.05, rawDt) * TIME_SCALE;
   last = now;
@@ -1994,6 +1955,9 @@ function frame(now) {
     copy.getContext('2d').drawImage(canvas, 0, 0);
     const r = shotRequest;
     shotRequest = null;
+    shotHiRes = false;
+    renderer.setPixelRatio(perf.pr);
+    layout();
     r(copy);
   }
 }
