@@ -38,7 +38,7 @@ export async function onRequest({ request }) {
         const r = await fetch(`${UPSTREAM}/rest/v1/trees?select=id&limit=1`, { headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` } });
         status = r.status;
       } catch (e) { /* 连不上 */ }
-      return new Response(JSON.stringify({ functions: true, supabase: status === 200, upstream_status: status }), {
+      return new Response(JSON.stringify({ version: 'proxy-v3', functions: true, supabase: status === 200, upstream_status: status }), {
         status: 200, headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store', ...CORS },
       });
     }
