@@ -5,7 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Fireworks, sampleText } from './fx.js';
 import { Sound } from './audio.js';
-import { api, cloudEnabled, MAX_FRIENDS, TreeFullError, rememberMyTree, isMyTree, myTrees, hasDecorated, markDecorated, compressImage } from './api.js';
+import { api, cloudEnabled, MAX_FRIENDS, TreeFullError, NicknameTakenError, rememberMyTree, isMyTree, myTrees, hasDecorated, markDecorated, compressImage } from './api.js';
 
 /* =====================================================================
  * 参数
@@ -1569,8 +1569,28 @@ async function uploadMine(photo, file) {
     return { ok: true };
   } catch (e) {
     console.warn(e);
-    return { ok: false, full: e instanceof TreeFullError, error: e };
+    return { ok: false, full: e instanceof TreeFullError, taken: e instanceof NicknameTakenError, error: e };
   }
+}
+function removePhoto(p) {
+  state.photos = state.photos.filter((q) => q !== p);
+  p.state = 'idle';
+  if (p.mesh) p.mesh.visible = false;
+  const sl = p.slot;
+  if (sl) {
+    const next = queue.findIndex((q) => q.mesh);
+    if (next >= 0) {
+      const q = queue.splice(next, 1)[0];
+      assignSlot(sl, q);
+      q.state = 'hang';
+      q.t = 0;
+      q.mesh.visible = false;
+    } else {
+      slots = slots.filter((x) => x !== sl);
+    }
+  }
+  p.slot = null;
+  disposePhoto(p);
 }
 const deco = { file: null, url: '' };
 function openDeco() {
@@ -1594,7 +1614,22 @@ ui.decoFile.addEventListener('change', () => {
   ui.decoImg.hidden = false;
   ui.decoSlot.classList.add('has');
 });
-ui.decoGo.addEventListener('click', () => {
+const DECO_TIP = '之后种你自己的树，也用这个名字';
+function decoNameError(msg) {
+  const tip = $('decoTip');
+  tip.textContent = msg || DECO_TIP;
+  tip.classList.toggle('err', !!msg);
+  ui.decoNameField.classList.toggle('err', !!msg);
+  if (msg) {
+    ui.decoNameField.classList.remove('shake');
+    void ui.decoNameField.offsetWidth;
+    ui.decoNameField.classList.add('shake');
+  }
+}
+ui.decoName.addEventListener('input', () => decoNameError(''));
+let decoChecking = false;
+ui.decoGo.addEventListener('click', async () => {
+  if (decoChecking) return;
   if (!deco.file) {
     toast('先选一张照片');
     ui.decoSlot.animate([{ transform: 'rotate(-2deg) scale(1)' }, { transform: 'rotate(-2deg) scale(1.08)' }, { transform: 'rotate(-2deg) scale(1)' }], { duration: 400 });
@@ -1602,6 +1637,24 @@ ui.decoGo.addEventListener('click', () => {
   }
   const name = requireName(ui.decoName, ui.decoNameField);
   if (!name) return;
+  // 先查昵称有没有被用过，被用过就停在这里
+  decoChecking = true;
+  ui.decoGo.disabled = true;
+  let taken = false;
+  try {
+    taken = await api.nicknameTaken(state.tree.id, name);
+  } catch (e) {
+    taken = false; // 查不到就交给服务器兜底
+  }
+  decoChecking = false;
+  ui.decoGo.disabled = false;
+  if (taken) {
+    decoNameError('该昵称已被注册，换一个吧');
+    toast('该昵称已被注册');
+    ui.decoName.focus();
+    return;
+  }
+  decoNameError('');
   on(ui.deco, false);
   runDecorate(name, ui.decoMsg.value.trim(), deco.file, deco.url);
   deco.file = null;
@@ -1644,7 +1697,20 @@ async function runDecorate(name, message, file, url) {
       secondary: ['存一张 TA 的树', saveShot],
       fab: '种我的树',
     });
+  } else if (r.taken) {
+    removePhoto(mine);
+    toast('该昵称已被注册');
+    // 保留刚选的照片，改个名字就能重新挂
+    deco.file = file;
+    deco.url = URL.createObjectURL(file);
+    ui.decoImg.src = deco.url;
+    ui.decoImg.hidden = false;
+    ui.decoSlot.classList.add('has');
+    ui.decoMsg.value = message || '';
+    openDeco();
+    decoNameError('该昵称已被注册，换一个吧');
   } else if (r.full) {
+    removePhoto(mine);
     toast('这棵树刚刚被挂满了，照片没能保存', 4000);
     finaleModal();
   } else {

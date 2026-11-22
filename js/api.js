@@ -18,6 +18,10 @@ async function sha256hex(text) {
 export class TreeFullError extends Error {
   constructor() { super('tree_full'); this.name = 'TreeFullError'; }
 }
+export class NicknameTakenError extends Error {
+  constructor() { super('该昵称已被注册'); this.name = 'NicknameTakenError'; }
+}
+const normName = (s) => String(s || '').trim().toLowerCase();
 
 /* ------------------------------ Supabase ------------------------------ */
 const base = SUPABASE_URL.replace(/\/+$/, '');
@@ -28,6 +32,7 @@ async function rest(path, opts = {}) {
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     if (/tree_full/.test(text)) throw new TreeFullError();
+    if (/nickname_taken/.test(text)) throw new NicknameTakenError();
     throw new Error(`请求失败 (${res.status})`);
   }
   return res.status === 204 ? null : res.json();
@@ -53,6 +58,15 @@ const supabaseApi = {
     return rows.map(normPhoto);
   },
   // opts: { ownerKey?, message? }
+  // 这个昵称在这棵树上是否已被朋友或主人使用
+  async nicknameTaken(treeId, nickname) {
+    const [rows, trees] = await Promise.all([
+      rest(`photos?tree_id=eq.${encodeURIComponent(treeId)}&is_owner=eq.false&select=nickname`),
+      rest(`trees?id=eq.${encodeURIComponent(treeId)}&select=owner_name`),
+    ]);
+    const n = normName(nickname);
+    return rows.some((r) => normName(r.nickname) === n) || trees.some((t) => normName(t.owner_name) === n);
+  },
   async claimTree(id, hash) {
     return rest('rpc/claim_tree', {
       method: 'POST',
@@ -125,6 +139,12 @@ const localApi = {
     return t ? t.photos.map(normPhoto) : [];
   },
   async claimTree() { return false; },
+  async nicknameTaken(treeId, nickname) {
+    const t = loadAll()[treeId];
+    if (!t) return false;
+    const n = normName(nickname);
+    return normName(t.owner_name) === n || t.photos.some((p) => !p.is_owner && normName(p.nickname) === n);
+  },
   async addPhoto(treeId, nickname, blob, opts = {}) {
     const all = loadAll();
     const t = all[treeId];
@@ -133,6 +153,7 @@ const localApi = {
     if (isOwner && opts.ownerKey !== t.key) throw new Error('没有权限');
     const limit = isOwner ? MAX_OWNER : MAX_FRIENDS;
     if (t.photos.filter((p) => !!p.is_owner === isOwner).length >= limit) throw new TreeFullError();
+    if (!isOwner && await this.nicknameTaken(treeId, nickname)) throw new NicknameTakenError();
     const row = {
       id: randomId(12), nickname, url: await blobToDataURL(blob), created_at: new Date().toISOString(),
       is_owner: isOwner, message: opts.message || '',

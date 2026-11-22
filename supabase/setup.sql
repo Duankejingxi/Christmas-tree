@@ -62,6 +62,13 @@ begin
       raise exception 'tree_full';
     end if;
   else
+    -- 同一棵树上朋友的昵称不能重复，也不能和主人同名（不区分大小写、忽略首尾空格）
+    if exists (select 1 from public.photos where tree_id = new.tree_id and not is_owner
+                 and lower(btrim(nickname)) = lower(btrim(new.nickname)))
+       or exists (select 1 from public.trees where id = new.tree_id
+                 and lower(btrim(owner_name)) = lower(btrim(new.nickname))) then
+      raise exception 'nickname_taken';
+    end if;
     -- 朋友人数不限（每人一张由前端控制），这里只设一个防刷的安全上限
     if (select count(*) from public.photos where tree_id = new.tree_id and not is_owner) >= 500 then
       raise exception 'tree_full';

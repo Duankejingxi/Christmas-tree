@@ -490,3 +490,6 @@ body.booting .landing { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
   .landing > *, .slot, .polaroid, .fab.is-on, .fab-glow, .btn-primary .arr { animation: none; }
 }
+
+#deco .field-tip.err { color: var(--red); font-weight: 700; }
+#deco .line-field.err input { border-color: var(--red); }
