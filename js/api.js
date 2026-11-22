@@ -2,6 +2,7 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 
 export const MAX_FRIENDS = 10;
+export const MAX_OWNER = 10;
 export const cloudEnabled = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 const randomId = (n = 10) => {
@@ -9,6 +10,10 @@ const randomId = (n = 10) => {
   const bytes = crypto.getRandomValues(new Uint8Array(n));
   return [...bytes].map((b) => chars[b % chars.length]).join('');
 };
+async function sha256hex(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 export class TreeFullError extends Error {
   constructor() { super('tree_full'); this.name = 'TreeFullError'; }
@@ -23,7 +28,7 @@ async function rest(path, opts = {}) {
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     if (/tree_full/.test(text)) throw new TreeFullError();
-    throw new Error(`请求失败 (${res.status}) ${text.slice(0, 120)}`);
+    throw new Error(`请求失败 (${res.status})`);
   }
   return res.status === 204 ? null : res.json();
 }
@@ -31,22 +36,24 @@ async function rest(path, opts = {}) {
 const supabaseApi = {
   async createTree(ownerName) {
     const id = randomId();
+    const ownerKey = randomId(24);
     const rows = await rest('trees', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
-      body: JSON.stringify({ id, owner_name: ownerName }),
+      body: JSON.stringify({ id, owner_name: ownerName, owner_key_hash: await sha256hex(ownerKey) }),
     });
-    return normTree(rows[0]);
+    return { tree: normTree(rows[0]), ownerKey };
   },
   async getTree(id) {
-    const rows = await rest(`trees?id=eq.${encodeURIComponent(id)}&select=*`);
+    const rows = await rest(`trees?id=eq.${encodeURIComponent(id)}&select=id,owner_name,created_at`);
     return rows[0] ? normTree(rows[0]) : null;
   },
   async listPhotos(treeId) {
-    const rows = await rest(`photos?tree_id=eq.${encodeURIComponent(treeId)}&select=*&order=created_at.asc`);
+    const rows = await rest(`photos?tree_id=eq.${encodeURIComponent(treeId)}&select=id,nickname,path,created_at,is_owner,message&order=created_at.asc`);
     return rows.map(normPhoto);
   },
-  async addPhoto(treeId, nickname, blob) {
+  // opts: { ownerKey?, message? }
+  async addPhoto(treeId, nickname, blob, opts = {}) {
     const path = `${treeId}/${Date.now()}-${randomId(6)}.jpg`;
     const up = await fetch(`${base}/storage/v1/object/photos/${path}`, {
       method: 'POST',
@@ -54,10 +61,12 @@ const supabaseApi = {
       body: blob,
     });
     if (!up.ok) throw new Error(`照片上传失败 (${up.status})`);
+    const body = { tree_id: treeId, nickname, path, is_owner: !!opts.ownerKey, message: opts.message || null };
+    if (opts.ownerKey) body.owner_key = opts.ownerKey;
     const rows = await rest('photos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' },
-      body: JSON.stringify({ tree_id: treeId, nickname, path }),
+      body: JSON.stringify(body),
     });
     return normPhoto(rows[0]);
   },
@@ -72,6 +81,8 @@ function normPhoto(r) {
     nickname: r.nickname,
     url: r.url || `${base}/storage/v1/object/public/photos/${r.path}`,
     createdAt: r.created_at,
+    isOwner: !!r.is_owner,
+    message: r.message || '',
   };
 }
 
@@ -93,9 +104,10 @@ const localApi = {
   async createTree(ownerName) {
     const all = loadAll();
     const id = randomId();
-    all[id] = { id, owner_name: ownerName, created_at: new Date().toISOString(), photos: [] };
+    const ownerKey = randomId(24);
+    all[id] = { id, owner_name: ownerName, created_at: new Date().toISOString(), key: ownerKey, photos: [] };
     saveAll(all);
-    return normTree(all[id]);
+    return { tree: normTree(all[id]), ownerKey };
   },
   async getTree(id) {
     const t = loadAll()[id];
@@ -105,12 +117,18 @@ const localApi = {
     const t = loadAll()[treeId];
     return t ? t.photos.map(normPhoto) : [];
   },
-  async addPhoto(treeId, nickname, blob) {
+  async addPhoto(treeId, nickname, blob, opts = {}) {
     const all = loadAll();
     const t = all[treeId];
     if (!t) throw new Error('找不到这棵树');
-    if (t.photos.length >= MAX_FRIENDS) throw new TreeFullError();
-    const row = { id: randomId(12), nickname, url: await blobToDataURL(blob), created_at: new Date().toISOString() };
+    const isOwner = !!opts.ownerKey;
+    if (isOwner && opts.ownerKey !== t.key) throw new Error('没有权限');
+    const limit = isOwner ? MAX_OWNER : MAX_FRIENDS;
+    if (t.photos.filter((p) => !!p.is_owner === isOwner).length >= limit) throw new TreeFullError();
+    const row = {
+      id: randomId(12), nickname, url: await blobToDataURL(blob), created_at: new Date().toISOString(),
+      is_owner: isOwner, message: opts.message || '',
+    };
     t.photos.push(row);
     saveAll(all);
     return normPhoto(row);
@@ -124,14 +142,27 @@ const MINE_KEY = 'xmas.myTrees';
 export function myTrees() {
   try { return JSON.parse(localStorage.getItem(MINE_KEY)) || []; } catch (e) { return []; }
 }
-export function rememberMyTree(tree) {
+export function rememberMyTree(tree, ownerKey) {
   try {
     const list = myTrees().filter((t) => t.id !== tree.id);
-    list.unshift({ id: tree.id, ownerName: tree.ownerName });
+    list.unshift({ id: tree.id, ownerName: tree.ownerName, key: ownerKey });
     localStorage.setItem(MINE_KEY, JSON.stringify(list.slice(0, 20)));
   } catch (e) { /* ignore */ }
 }
 export const isMyTree = (id) => myTrees().some((t) => t.id === id);
+
+/* ------------------------------ 我装饰过的树 ------------------------------ */
+const DECO_KEY = 'xmas.decorated';
+export function hasDecorated(id) {
+  try { return (JSON.parse(localStorage.getItem(DECO_KEY)) || []).includes(id); } catch (e) { return false; }
+}
+export function markDecorated(id) {
+  try {
+    const list = JSON.parse(localStorage.getItem(DECO_KEY)) || [];
+    if (!list.includes(id)) list.push(id);
+    localStorage.setItem(DECO_KEY, JSON.stringify(list.slice(-100)));
+  } catch (e) { /* ignore */ }
+}
 
 /* ------------------------------ 图片压缩 ------------------------------ */
 export async function compressImage(file, max = 1600, quality = 0.86) {

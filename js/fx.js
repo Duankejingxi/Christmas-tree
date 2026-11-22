@@ -4,7 +4,7 @@ import * as THREE from 'three';
 const rand = (a = 0, b = 1) => a + Math.random() * (b - a);
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 
-// kind: 0 火花  1 汇聚成文字  2 火箭  3 拖尾/微光
+// kind: 0 火花  1 汇聚成文字  2 火箭  3 拖尾/微光  4 流星
 export class Fireworks {
   constructor(max, uniforms) {
     this.max = max;
@@ -108,9 +108,77 @@ export class Fireworks {
   }
 
   clear() {
-    for (let i = 0; i < this.max; i++) this.kill(i);
+    for (let i = 0; i < this.max; i++) {
+      if (this.alive[i]) this.kill(i);
+      this.alpha[i] = 0;
+      this.size[i] = 0;
+    }
+    this.cb.clear();
+    this.aPos.needsUpdate = true;
     this.aAlpha.needsUpdate = true;
     this.aSize.needsUpdate = true;
+  }
+
+  meteor(x, y, z, vx, vy, life) {
+    const c = { r: 1, g: 0.97, b: 0.9 };
+    this.add(4, x, y, z, vx, vy, 0, c, 1.3, life, 0);
+  }
+
+  // 文字粒子炸开后重新汇聚成新的字；targets 同 textBurst
+  morphText(targets, L, colorFn, origin) {
+    const idx = [];
+    for (let i = 0; i < this.max; i++) if (this.alive[i] && this.kind[i] === 1) idx.push(i);
+    let k = 0;
+    for (; k < targets.length; k++) {
+      let i;
+      if (k < idx.length) i = idx[k];
+      else {
+        const src = idx.length ? idx[k % idx.length] : -1;
+        const sx = src >= 0 ? this.pos[src * 3] : origin.x;
+        const sy = src >= 0 ? this.pos[src * 3 + 1] : origin.y;
+        i = this.add(1, sx, sy, 0, 0, 0, 0, colorFn(targets[k]), rand(1.1, 1.7), 1e9);
+        if (i < 0) break;
+      }
+      const j = i * 3;
+      const t = targets[k];
+      // 以手指为中心向外炸开
+      let dx = this.pos[j] - origin.x, dy = this.pos[j + 1] - origin.y;
+      const d = Math.hypot(dx, dy) || 1;
+      dx /= d; dy /= d;
+      const sp = rand(3, 9) * (0.6 + 0.8 * Math.exp(-d * 0.25));
+      this.vel[j] = dx * sp + rand(-2, 2);
+      this.vel[j + 1] = dy * sp + rand(-2, 2);
+      this.vel[j + 2] = rand(-3, 3);
+      this.age[i] = 0.05;
+      const c = colorFn(t);
+      this.col[j] = c.r; this.col[j + 1] = c.g; this.col[j + 2] = c.b;
+      this.tn[i * 2] = t[0]; this.tn[i * 2 + 1] = t[1];
+      this.tgt[j] = t[0] * L.W; this.tgt[j + 1] = L.cy + t[1] * L.W; this.tgt[j + 2] = t[2];
+    }
+    for (; k < idx.length; k++) {
+      // 多余的粒子变成普通火花慢慢熄灭
+      const i = idx[k];
+      this.kind[i] = 0;
+      this.life[i] = this.maxLife[i] = rand(0.6, 1.4);
+      this.vel[i * 3] = rand(-4, 4);
+      this.vel[i * 3 + 1] = rand(-4, 4);
+    }
+    this.aCol.needsUpdate = true;
+  }
+
+  // 被手指扫过的文字粒子轻轻推开
+  repel(x, y, radius, strength) {
+    for (let i = 0; i < this.max; i++) {
+      if (!this.alive[i] || this.kind[i] !== 1) continue;
+      const j = i * 3;
+      const dx = this.pos[j] - x, dy = this.pos[j + 1] - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > radius * radius) continue;
+      const d = Math.sqrt(d2) || 0.001;
+      const f = (1 - d / radius) * strength;
+      this.pos[j] += (dx / d) * f;
+      this.pos[j + 1] += (dy / d) * f;
+    }
   }
 
   burst(x, y, z, { count = 160, speed = 7, colors, size = 1, life = 1.7, grav = 1.6, flat = 1 } = {}) {
@@ -184,6 +252,16 @@ export class Fireworks {
           this.onExplode && this.onExplode();
           cb && cb(x, y, z);
         }
+        continue;
+      }
+      if (k === 4) {
+        pos[j] += vel[j] * dt; pos[j + 1] += vel[j + 1] * dt;
+        const life = (this.life[i] -= dt);
+        const t = life / this.maxLife[i];
+        this.alpha[i] = Math.min(1, age * 6) * Math.max(0, t);
+        trail.setRGB(0.75, 0.85, 1);
+        this.add(3, pos[j], pos[j + 1], pos[j + 2], vel[j] * 0.04, vel[j + 1] * 0.04, 0, trail, 0.9 * t + 0.2, 0.5);
+        if (life <= 0) this.kill(i);
         continue;
       }
       if (k === 1) {

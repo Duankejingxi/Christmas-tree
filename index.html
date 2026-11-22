@@ -14,6 +14,7 @@
 </head>
 <body class="booting">
   <canvas id="scene"></canvas>
+  <div class="aurora"><i></i><i></i><i></i></div>
   <div class="vignette"></div>
 
   <!-- 右上角：声音 -->
@@ -66,6 +67,13 @@
     <video id="video" playsinline muted></video>
   </div>
 
+  <!-- 结束后的引导卡片（转发循环） -->
+  <div id="card" class="card-tip">
+    <p id="cardText"></p>
+    <button id="cardBtn" class="pill"></button>
+    <button id="cardClose" class="card-x" aria-label="收起"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+
   <!-- 结束后的操作 -->
   <nav id="dock" class="dock">
     <button data-act="replay"><svg viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v3.6h3.6"/></svg><span>再看一遍</span></button>
@@ -94,6 +102,30 @@
     </div>
   </div>
 
+  <!-- 帮朋友挂照片 -->
+  <div id="deco" class="overlay">
+    <div class="sheet">
+      <button class="close" data-close aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <h2 class="script small">Decorate</h2>
+      <p class="sheet-title" id="decoTitle"></p>
+      <p class="sheet-sub">挂好之后，就能点亮你自己的圣诞树</p>
+      <label class="slot add deco-slot" id="decoSlot">
+        <input id="decoFile" type="file" accept="image/*" hidden />
+        <img id="decoImg" alt="" hidden />
+        <svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>
+      </label>
+      <label class="line-field" id="decoNameField">
+        <input id="decoName" type="text" maxlength="12" placeholder="你的名字 · 会写在照片上" autocomplete="off" />
+        <span class="line"></span>
+      </label>
+      <label class="line-field">
+        <input id="decoMsg" type="text" maxlength="30" placeholder="写一句祝福 · 可选" autocomplete="off" />
+        <span class="line"></span>
+      </label>
+      <button id="decoGo" class="cta"><span>挂上去</span><i></i></button>
+    </div>
+  </div>
+
   <!-- 相册 -->
   <div id="album" class="overlay album">
     <div class="album-head">
@@ -118,6 +150,7 @@
       <img id="lbImg" alt="" />
       <figcaption>
         <span class="who" id="lbWho"></span>
+        <span class="msg" id="lbMsg"></span>
         <span class="when" id="lbWhen"></span>
         <button id="lbDownload" class="text-link">下载 ↓</button>
       </figcaption>
@@ -128,6 +161,7 @@
   <div id="toast" class="toast"></div>
 
   <noscript><p class="noscript">需要开启 JavaScript 才能看到圣诞树哦。</p></noscript>
+  <div id="swipeTip" class="swipe-tip">在字上划一下 ✦</div>
   <script type="module" src="./js/main.js"></script>
 </body>
 </html>

@@ -6,7 +6,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { HandTracker } from './hands.js';
 import { Fireworks, sampleText } from './fx.js';
 import { Sound } from './audio.js';
-import { api, cloudEnabled, MAX_FRIENDS, TreeFullError, rememberMyTree, isMyTree, compressImage } from './api.js';
+import { api, cloudEnabled, MAX_FRIENDS, TreeFullError, rememberMyTree, isMyTree, myTrees, hasDecorated, markDecorated, compressImage } from './api.js';
 
 /* =====================================================================
  * 参数
@@ -50,6 +50,7 @@ const easeOutBack = (x) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Ma
 const easeInOutCubic = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 const easeInOutSine = (x) => -(Math.cos(Math.PI * x) - 1) / 2;
 const easeOutCubic = (x) => 1 - Math.pow(1 - x, 3);
+const C = (list) => list.map((c) => new THREE.Color(c));
 function seeded(str) {
   let h = 1779033703 ^ str.length;
   for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
@@ -97,6 +98,8 @@ const U = {
   uPR: { value: renderer.getPixelRatio() },
   uCenterZ: { value: -20 },
   uGS: { value: 1 },
+  uBurst: { value: 0 },
+  uBurstDir: { value: 1 },
 };
 
 /* =====================================================================
@@ -121,7 +124,9 @@ function buildTree() {
   const ice = new THREE.Color('#bfe4ff');
   const white = new THREE.Color('#ffffff');
   const gold = new THREE.Color('#ffd79a');
-  const warm = ['#ffcf70', '#ffb36b', '#ff7a6b', '#ffe1a8', '#ff9fb2', '#a8e4ff'].map((c) => new THREE.Color(c));
+  const warm = ['#ffcf70', '#ffb36b', '#ff7a6b', '#ffe1a8', '#ff9fb2', '#a8e4ff', '#c9a7ff', '#9ff0d0'].map((c) => new THREE.Color(c));
+  const pastel = ['#ffc8dd', '#cdb4db', '#b9fbc0', '#ffd6a5', '#a0c4ff', '#fdffb6'].map((c) => new THREE.Color(c));
+  const deep = [[0.1, 0.22, 0.42], [0.22, 0.12, 0.38], [0.06, 0.26, 0.3], [0.3, 0.12, 0.24]];
 
   for (let n = 0; n < COUNT.ribbon; n++) {
     const halo = Math.random() < 0.3;
@@ -134,7 +139,9 @@ function buildTree() {
   for (let n = 0; n < COUNT.sparkle; n++) {
     const u = 1 - Math.sqrt(Math.random());
     col.copy(ice).lerp(white, Math.random());
-    if (Math.random() < 0.15) col.copy(gold);
+    const r = Math.random();
+    if (r < 0.13) col.copy(gold);
+    else if (r < 0.45) col.lerp(pastel[(Math.random() * pastel.length) | 0], 0.75);
     col.multiplyScalar(rand(0.7, 1));
     put(cone(u, rand(0.86, 1.04)), [1, u, 0, 0], [rand(0.6, 1.35), Math.random() * TAU, rand(0.5, 2.2), 0], [col.r, col.g, col.b]);
   }
@@ -144,7 +151,7 @@ function buildTree() {
     const r = TREE_R * (1 - u) * Math.sqrt(Math.random()) * 0.75;
     const k = rand(0.5, 1);
     put([Math.cos(ang) * r, TREE_BASE + u * TREE_H, Math.sin(ang) * r], [2, u, 0, 0],
-      [rand(9, 18), Math.random() * TAU, 0.5, 0], [0.1 * k, 0.22 * k, 0.42 * k]);
+      [rand(9, 18), Math.random() * TAU, 0.5, 0], deep[(Math.random() * deep.length) | 0].map((v) => v * k));
   }
   for (let n = 0; n < COUNT.ornament; n++) {
     const u = (1 - Math.sqrt(Math.random())) * 0.95;
@@ -172,7 +179,7 @@ function buildTree() {
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     vertexShader: /* glsl */ `
-      uniform float uClock, uReveal, uIntro, uScatter, uFade, uSize, uScale, uPR, uCenterZ, uGS;
+      uniform float uClock, uReveal, uIntro, uScatter, uFade, uSize, uScale, uPR, uCenterZ, uGS, uBurst, uBurstDir;
       attribute vec4 aA;
       attribute vec4 aB;
       attribute vec3 aColor;
@@ -205,7 +212,11 @@ function buildTree() {
           float drawing = 1.0 - step(0.999, uReveal);
           float head = (1.0 - smoothstep(0.0, 0.05, abs(front))) * drawing;
           sizeMul += head * 1.6;
-          col = mix(vec3(0.55, 0.8, 1.0), vec3(1.0, 0.97, 0.92), smoothstep(0.0, 0.95, u)) * aColor + head * vec3(0.6, 0.5, 0.3);
+          // 淡淡的彩虹色沿着光带缓缓流动
+          vec3 pastel = 0.5 + 0.5 * cos(TAU * (vec3(0.0, 0.33, 0.67) + fract(u * 1.4 + aA.z * 0.16 - uClock * 0.025)));
+          pastel = mix(vec3(1.0), pastel, 0.6);
+          vec3 base = mix(vec3(0.6, 0.82, 1.0), vec3(1.0, 0.97, 0.93), smoothstep(0.0, 0.95, u));
+          col = mix(base, pastel, 0.42) * aColor + head * vec3(0.6, 0.5, 0.3);
           tw = 0.78 + 0.22 * sin(uClock * aB.z + aB.y);
         } else {
           p = position;
@@ -231,12 +242,22 @@ function buildTree() {
           p.xz = mat2(c, -s, s, c) * p.xz;
           p.y += uScatter * sin(uClock * 0.7 + aB.y) * 0.5;
         }
+        // 手指上下拖动：粒子炸开，松手后弹回
+        if (abs(uBurst) > 0.001) {
+          float rb = fract(aB.y * 9.17);
+          vec3 d2 = normalize(vec3(p.x, (fract(aB.y * 5.31) - 0.5) * 3.0, p.z) + vec3(1e-3, 0.0, 1e-3));
+          p += d2 * uBurst * (1.5 + 9.0 * rb * rb);
+          p.y += uBurstDir * uBurst * (0.5 + 5.0 * rb);
+          float sw2 = uBurst * (0.6 + rb) * 1.8;
+          float s2 = sin(sw2), c2 = cos(sw2);
+          p.xz = mat2(c2, -s2, s2, c2) * p.xz;
+        }
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
         gl_Position = projectionMatrix * mv;
         // 前亮后暗，增强立体感
         float depth = mv.z - uCenterZ;
         float df = smoothstep(-RAD * uGS, RAD * uGS, depth);
-        alpha *= mix(0.3, 1.0, mix(df, 1.0, uScatter));
+        alpha *= mix(0.3, 1.0, mix(df, 1.0, clamp(uScatter + abs(uBurst), 0.0, 1.0)));
         gl_PointSize = min(uSize * aB.x * sizeMul * uPR * (0.65 + 0.45 * min(tw, 1.4)) * (uScale / -mv.z), 64.0 * uPR);
         vColor = col;
         vAlpha = alpha * tw * uFade;
@@ -390,6 +411,113 @@ function buildSnow() {
 scene.add(buildSnow());
 
 /* =====================================================================
+ * 氛围层：远处彩色光斑 / 近处大雪花 / 一直延伸到两边的地面闪光
+ * ===================================================================== */
+function ambientPoints(count, fill, vertexBody, fragBody) {
+  const pos = new Float32Array(count * 3);
+  const a = new Float32Array(count * 4);
+  const c = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) fill(i, pos, a, c);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aP', new THREE.BufferAttribute(a, 4));
+  geo.setAttribute('aColor', new THREE.BufferAttribute(c, 3));
+  const mat = new THREE.ShaderMaterial({
+    uniforms: U,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      uniform float uClock, uScale, uPR, uBurst;
+      attribute vec4 aP;
+      attribute vec3 aColor;
+      varying vec3 vColor;
+      varying float vAlpha;
+      void main() { ${vertexBody} }
+    `,
+    fragmentShader: `
+      varying vec3 vColor;
+      varying float vAlpha;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        ${fragBody}
+      }
+    `,
+  });
+  const pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false;
+  return pts;
+}
+const BOKEH_COLORS = C(['#ffb3c6', '#ffd6a5', '#a0c4ff', '#cdb4db', '#9bf6ff', '#fdffb6', '#ffc8dd']);
+const bokeh = ambientPoints(IS_MOBILE ? 24 : 38, (i, pos, a, c) => {
+  // 避开画面中央，让光斑留在四周
+  let x = rand(-44, 44);
+  if (Math.abs(x) < 14) x = (x < 0 ? -1 : 1) * rand(14, 44);
+  pos.set([x, rand(-18, 22), rand(-46, -22)], i * 3);
+  a.set([rand(60, 150), Math.random() * TAU, rand(0.018, 0.055), rand(0.3, 1)], i * 4);
+  const col = BOKEH_COLORS[(Math.random() * BOKEH_COLORS.length) | 0];
+  c.set([col.r, col.g, col.b], i * 3);
+}, `
+  vec3 p = position;
+  p.x += sin(uClock * 0.05 * aP.w + aP.y) * 2.0;
+  p.y += cos(uClock * 0.04 * aP.w + aP.y) * 1.2;
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  gl_Position = projectionMatrix * mv;
+  gl_PointSize = min(aP.x * uPR * (uScale / -mv.z), 260.0 * uPR);
+  vColor = aColor;
+  vAlpha = aP.z * (0.7 + 0.3 * sin(uClock * 0.3 * aP.w + aP.y));
+`, `
+  float a = smoothstep(0.5, 0.44, d) * 0.55 + smoothstep(0.5, 0.0, d) * 0.45;
+  gl_FragColor = vec4(vColor * a * vAlpha, 1.0);
+`);
+scene.add(bokeh);
+
+const flakes = ambientPoints(IS_MOBILE ? 14 : 26, (i, pos, a, c) => {
+  pos.set([rand(-9, 9), rand(-8, 8), rand(6, 12)], i * 3);
+  a.set([rand(10, 22), Math.random() * TAU, rand(0.25, 0.6), rand(0.08, 0.2)], i * 4);
+  c.set([0.9, 0.95, 1], i * 3);
+}, `
+  vec3 p = position;
+  p.y = mod(p.y - uClock * aP.z + 9.0, 18.0) - 9.0;
+  p.x += sin(uClock * 0.4 + aP.y) * 0.8;
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  gl_Position = projectionMatrix * mv;
+  gl_PointSize = min(aP.x * uPR * (uScale / -mv.z), 200.0 * uPR);
+  vColor = aColor;
+  vAlpha = aP.w * smoothstep(9.0, 6.0, abs(p.y));
+`, `
+  float a = smoothstep(0.5, 0.05, d);
+  gl_FragColor = vec4(vColor * a * a * vAlpha, 1.0);
+`);
+scene.add(flakes);
+
+const GROUND_COLORS = C(['#ffffff', '#cfe9ff', '#ffe7b8', '#ffd1e3', '#d4ffe9']);
+const groundGroup = new THREE.Group();
+groundGroup.add(ambientPoints(IS_MOBILE ? 1400 : 2800, (i, pos, a, c) => {
+  const near = Math.random() < 0.45;
+  const x = near ? gauss() * 6 : rand(-32, 32);
+  const z = near ? gauss() * 4 : rand(-26, 9);
+  pos.set([x, gauss() * 0.02, z], i * 3);
+  a.set([rand(0.5, 1.3), Math.random() * TAU, rand(0.4, 2.2), Math.max(0.12, 1 - Math.hypot(x, z) / 34)], i * 4);
+  const col = Math.random() < 0.7 ? GROUND_COLORS[0] : GROUND_COLORS[(Math.random() * GROUND_COLORS.length) | 0];
+  c.set([col.r, col.g, col.b], i * 3);
+}, `
+  vec3 p = position;
+  p += normalize(vec3(p.x, 0.0, p.z) + vec3(1e-3)) * uBurst * 2.0 * fract(aP.y);
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  gl_Position = projectionMatrix * mv;
+  float tw = 0.12 + 1.2 * pow(max(0.0, sin(uClock * aP.z + aP.y)), 14.0);
+  gl_PointSize = min(2.4 * aP.x * uPR * (uScale / -mv.z) * (0.7 + 0.5 * min(tw, 1.0)), 14.0 * uPR);
+  vColor = aColor;
+  vAlpha = tw * aP.w * 0.7;
+`, `
+  float a = smoothstep(0.5, 0.0, d);
+  gl_FragColor = vec4(vColor * a * a * vAlpha, 1.0);
+`));
+scene.add(groundGroup);
+
+/* =====================================================================
  * 烟花 & 声音
  * ===================================================================== */
 const fw = new Fireworks(FW_MAX, U);
@@ -397,7 +525,6 @@ scene.add(fw.points);
 const sound = new Sound();
 fw.onExplode = () => sound.boom(0.7);
 
-const C = (list) => list.map((c) => new THREE.Color(c));
 const PALETTES = [
   C(['#ff4d6d', '#ffb3c1', '#fff0f3']),
   C(['#ffd166', '#fff3c4', '#ffb703']),
@@ -461,6 +588,7 @@ const state = {
   nickname: '',
   pending: [], // 首页选择的照片 {file, url}
   uploading: null,
+  shareP: null,
 };
 
 function loadImage(src) {
@@ -565,7 +693,7 @@ function placePhotos(list, seed) {
 
 const hungHeight = () => {
   const n = state.photos.length;
-  return n <= 3 ? 1.7 : n <= 6 ? 1.45 : 1.25;
+  return n <= 3 ? 1.7 : n <= 6 ? 1.45 : n <= 10 ? 1.25 : n <= 15 ? 1.1 : 1.0;
 };
 
 function showPhoto(p) {
@@ -598,7 +726,14 @@ function updatePhotos(dt) {
   for (const p of state.photos) {
     if (!p.mesh || !p.state || p.state === 'idle' || p.state === 'gone') continue;
     const m = p.mesh;
-    const world = treeGroup.localToWorld(tmpV.copy(p.local));
+    tmpV.copy(p.local);
+    if (p.state === 'hang' && Math.abs(U.uBurst.value) > 0.001) {
+      const b = U.uBurst.value;
+      tmpV.x *= 1 + b * 1.4;
+      tmpV.z *= 1 + b * 1.4;
+      tmpV.y += U.uBurstDir.value * b * 2;
+    }
+    const world = treeGroup.localToWorld(tmpV);
     let rotZ = 0;
     if (p.state === 'show') {
       p.t += dt;
@@ -733,7 +868,7 @@ const rot = () => `${(Math.random() * 10 - 5).toFixed(1)}deg`;
 
 function renderSlots() {
   ui.slots.querySelectorAll('.slot:not(.add)').forEach((n) => n.remove());
-  const single = state.mode === 'visit';
+  const single = false;
   ui.slots.classList.toggle('single', single);
   state.pending.forEach((p, i) => {
     const d = document.createElement('div');
@@ -760,7 +895,7 @@ function renderSlots() {
 
 ui.file.addEventListener('change', () => {
   const files = [...ui.file.files].filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(f.name));
-  const single = state.mode === 'visit';
+  const single = false;
   if (single) {
     state.pending.forEach((p) => URL.revokeObjectURL(p.url));
     state.pending = [];
@@ -773,51 +908,51 @@ ui.file.addEventListener('change', () => {
   renderSlots();
 });
 
+const friendCount = () => state.remote.filter((r) => !r.isOwner).length;
+const ownerName = () => (state.tree ? state.tree.ownerName : state.nickname);
+
 function setLanding() {
   ui.eyebrow.textContent = countdownText();
-  const n = state.remote.length;
-  const left = MAX_FRIENDS - n;
+  const n = friendCount();
   ui.nickField.hidden = false;
   ui.slots.hidden = false;
   ui.nick.placeholder = '你的名字';
+  ui.alt.textContent = '';
+  ui.alt.onclick = null;
   if (state.mode === 'local') {
-    ui.lead.textContent = '点亮一棵属于你的圣诞树';
+    ui.lead.textContent = params.has('from') ? '轮到你了 · 点亮你自己的圣诞树' : '点亮一棵属于你的圣诞树';
     ui.goText.textContent = '点亮';
-    ui.alt.textContent = '邀请朋友一起装饰 →';
-  } else if (state.mode === 'visit') {
-    ui.lead.innerHTML = `<b>${esc(state.tree.ownerName)}</b> 的圣诞树`;
-    if (left > 0) {
-      ui.nick.placeholder = '你的名字 · 会写在照片上';
-      ui.note.innerHTML = n ? `已有 <b>${n}</b> 位朋友挂上了照片 · 还能挂 ${left} 张` : '挂上一张照片，做第一个来装饰的朋友';
-      ui.goText.textContent = '挂上去';
-      ui.alt.textContent = n ? '先看看这棵树 →' : '';
-    } else {
-      ui.nickField.hidden = true;
-      ui.slots.hidden = true;
-      ui.note.innerHTML = `这棵树已经挂满 ${MAX_FRIENDS} 张照片啦`;
-      ui.goText.textContent = '去看看';
-      ui.alt.textContent = '我也要一棵 →';
+    const last = myTrees()[0];
+    if (last && !params.has('from')) {
+      ui.alt.textContent = '打开我上次的圣诞树 →';
+      ui.alt.onclick = () => { location.href = shareLinkFor(last.id); };
     }
   } else {
-    ui.lead.textContent = '你的共享圣诞树';
     ui.nickField.hidden = true;
     ui.slots.hidden = true;
-    ui.note.innerHTML = n ? `已有 <b>${n}</b> 位朋友来装饰 · 还能挂 ${left} 张` : '还没有朋友来装饰，把链接发给他们吧';
     ui.goText.textContent = '打开';
-    ui.alt.textContent = '邀请朋友 →';
+    if (state.mode === 'visit') {
+      ui.lead.innerHTML = `<b>${esc(state.tree.ownerName)}</b> 的圣诞树`;
+      ui.note.innerHTML = n ? `已有 <b>${n}</b> 位朋友来装饰过` : 'TA 邀请你来看看这棵圣诞树';
+    } else {
+      ui.lead.textContent = '你的圣诞树';
+      ui.note.innerHTML = n ? `已有 <b>${n}</b> 位朋友来装饰 · 还能挂 ${MAX_FRIENDS - n} 张` : '还没有朋友来装饰，把链接发给他们吧';
+      ui.alt.textContent = '邀请朋友 →';
+      ui.alt.onclick = () => openSheet(shareLinkFor(state.tree.id), true);
+    }
   }
   renderSlots();
   try { if (!ui.nick.value) ui.nick.value = localStorage.getItem('xmas.nick') || ''; } catch (e) { /* ignore */ }
   document.body.classList.remove('booting');
 }
 
-function requireNick() {
-  const v = ui.nick.value.trim();
+function requireName(input, field) {
+  const v = input.value.trim();
   if (!v) {
-    ui.nickField.classList.remove('shake');
-    void ui.nickField.offsetWidth;
-    ui.nickField.classList.add('shake');
-    ui.nick.focus();
+    field.classList.remove('shake');
+    void field.offsetWidth;
+    field.classList.add('shake');
+    input.focus();
     toast('先写下你的名字吧');
     return null;
   }
@@ -825,54 +960,79 @@ function requireNick() {
   return v;
 }
 
+const remoteToPhoto = (r) => ({ nickname: r.nickname, src: r.url, createdAt: r.createdAt, id: r.id, isOwner: r.isOwner, message: r.message });
+
 ui.go.addEventListener('click', () => {
   if (state.mode === 'local') {
-    const nick = requireNick();
+    const nick = requireName(ui.nick, ui.nickField);
     if (!nick) return;
     state.nickname = nick;
-    const photos = state.pending.map((p) => ({ nickname: nick, src: p.url, blob: p.file, createdAt: new Date().toISOString() }));
+    const photos = state.pending.map((p, i) => ({
+      nickname: nick, src: p.url, blob: p.file, isOwner: true,
+      createdAt: new Date(Date.now() + i).toISOString(),
+    }));
+    // 点亮的同时在后台把树存到云端，这样随时可以分享
+    ensureShared(photos).catch(() => {});
     start({ featured: photos, prehung: [], seed: 'local-' + Math.random() });
-  } else if (state.mode === 'visit' && state.remote.length < MAX_FRIENDS) {
-    const nick = requireNick();
-    if (!nick) return;
-    if (!state.pending.length) {
-      toast('选一张照片挂到树上吧');
-      return;
-    }
-    state.nickname = nick;
-    const f = state.pending[0];
-    const mine = { nickname: nick, src: f.url, blob: f.file, createdAt: new Date().toISOString(), mine: true };
-    state.uploading = uploadMine(mine, f.file);
-    start({ featured: [mine], prehung: state.remote.map(remoteToPhoto), seed: state.tree.id });
+    return;
+  }
+  const owners = state.remote.filter((r) => r.isOwner).map(remoteToPhoto);
+  const friends = state.remote.filter((r) => !r.isOwner).map(remoteToPhoto);
+  if (state.mode === 'visit') {
+    // 朋友先看到主人的照片逐张出现，其他朋友的照片已经挂在树上
+    start(owners.length
+      ? { featured: owners, prehung: friends, seed: state.tree.id }
+      : { featured: friends, prehung: [], seed: state.tree.id });
   } else {
-    viewShared();
+    // 主人回来看：朋友们挂的照片逐张出现
+    start(friends.length
+      ? { featured: friends, prehung: owners, seed: state.tree.id }
+      : { featured: owners, prehung: [], seed: state.tree.id });
   }
 });
 ui.nick.addEventListener('keydown', (e) => { if (e.key === 'Enter') ui.go.click(); });
 
-ui.alt.addEventListener('click', () => {
-  if (state.mode === 'local') {
-    const nick = requireNick();
-    if (nick) createShare(nick);
-  } else if (state.mode === 'visit' && state.remote.length < MAX_FRIENDS) {
-    viewShared();
-  } else if (state.mode === 'visit') {
-    location.href = BASE_URL;
-  } else {
-    openSheet(shareLinkFor(state.tree.id), true);
+/* ---------- 存到云端（主人） ---------- */
+function ensureShared(photos) {
+  if (!state.shareP) {
+    state.shareP = (async () => {
+      const { tree, ownerKey } = await api.createTree(state.nickname);
+      rememberMyTree(tree, ownerKey);
+      for (const p of photos) {
+        const blob = await compressImage(p.blob);
+        const row = await api.addPhoto(tree.id, state.nickname, blob, { ownerKey });
+        p.id = row.id;
+        p.remoteUrl = row.url;
+      }
+      state.tree = tree;
+      history.replaceState(null, '', shareLinkFor(tree.id));
+      return tree;
+    })();
+    state.shareP.catch((e) => { console.warn(e); state.shareP = null; });
   }
-});
-
-const remoteToPhoto = (r) => ({ nickname: r.nickname, src: r.url, createdAt: r.createdAt, id: r.id });
-function viewShared() {
-  start({ featured: state.remote.map(remoteToPhoto), prehung: [], seed: state.tree.id });
+  return state.shareP;
+}
+async function inviteFriends() {
+  if (state.mode !== 'local') {
+    openSheet(shareLinkFor(state.tree.id), state.mode === 'owner');
+    return;
+  }
+  loading('正在准备分享链接');
+  try {
+    const tree = await ensureShared(state.photos.filter((p) => p.isOwner));
+    loading();
+    openSheet(shareLinkFor(tree.id), true);
+  } catch (e) {
+    loading();
+    toast('分享链接生成失败：' + (e.message || '请检查网络'));
+  }
 }
 
-/* ---------- 上传 ---------- */
+/* ---------- 朋友帮忙挂照片 ---------- */
 async function uploadMine(photo, file) {
   try {
     const blob = await compressImage(file);
-    const row = await api.addPhoto(state.tree.id, photo.nickname, blob);
+    const row = await api.addPhoto(state.tree.id, photo.nickname, blob, { message: photo.message });
     photo.id = row.id;
     photo.remoteUrl = row.url;
     state.remote.push(row);
@@ -882,6 +1042,99 @@ async function uploadMine(photo, file) {
     return { ok: false, full: e instanceof TreeFullError, error: e };
   }
 }
+
+const deco = { file: null, url: '' };
+['decoName', 'decoMsg', 'decoFile', 'decoSlot', 'decoImg', 'decoGo', 'decoTitle', 'decoNameField', 'card', 'cardText', 'cardBtn', 'cardClose', 'lbMsg', 'swipeTip', 'deco']
+  .forEach((id) => { ui[id] = $(id); });
+function openDeco() {
+  ui.decoTitle.textContent = `帮 ${state.tree.ownerName} 装饰圣诞树`;
+  try { if (!ui.decoName.value) ui.decoName.value = localStorage.getItem('xmas.nick') || ''; } catch (e) { /* ignore */ }
+  on(ui.deco);
+}
+ui.decoFile.addEventListener('change', () => {
+  const f = ui.decoFile.files[0];
+  ui.decoFile.value = '';
+  if (!f) return;
+  if (deco.url) URL.revokeObjectURL(deco.url);
+  deco.file = f;
+  deco.url = URL.createObjectURL(f);
+  ui.decoImg.src = deco.url;
+  ui.decoImg.hidden = false;
+  ui.decoSlot.classList.add('has');
+});
+ui.decoGo.addEventListener('click', () => {
+  const name = requireName(ui.decoName, ui.decoNameField);
+  if (!name) return;
+  if (!deco.file) { toast('选一张照片挂到树上吧'); return; }
+  on(ui.deco, false);
+  runDecorate(name, ui.decoMsg.value.trim(), deco.file, deco.url);
+  deco.file = null;
+  deco.url = '';
+  ui.decoImg.hidden = true;
+  ui.decoSlot.classList.remove('has');
+  ui.decoMsg.value = '';
+});
+
+async function runDecorate(name, message, file, url) {
+  const gen = generation;
+  on(ui.card, false);
+  on(ui.dock, false);
+  const mine = { nickname: name, message, src: url, blob: file, createdAt: new Date().toISOString(), mine: true };
+  const upload = uploadMine(mine, file);
+  try {
+    await preparePhoto(mine);
+  } catch (e) {
+    toast('这张照片读取失败，换一张试试');
+    on(ui.dock);
+    showCard();
+    return;
+  }
+  state.photos.push(mine);
+  showArgs.prehung.push(mine);
+  placePhotos([...state.photos].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)), state.tree.id);
+  await showPhoto(mine);
+  if (gen !== generation) return;
+  hangPhoto(mine, 0.05);
+  await sleep(1.2);
+  const r = await upload;
+  if (gen !== generation) return;
+  if (r.ok) {
+    markDecorated(state.tree.id);
+    toast(`你的照片已经挂在 ${state.tree.ownerName} 的树上了`, 3600);
+  } else if (r.full) {
+    toast('这棵树刚刚被挂满了，照片没能保存', 4000);
+  } else {
+    toast('照片没能上传成功：' + (r.error && r.error.message ? r.error.message : '请检查网络'), 4500);
+  }
+  on(ui.dock);
+  showCard();
+}
+
+/* ---------- 结束后的引导卡片 ---------- */
+function showCard() {
+  let text, btn, act;
+  if (state.mode === 'visit') {
+    const done = hasDecorated(state.tree.id);
+    if (done || friendCount() >= MAX_FRIENDS) {
+      text = done ? '你的照片已经挂在树上啦<small>现在去点亮你自己的圣诞树吧</small>' : '这棵树已经挂满啦<small>去点亮你自己的圣诞树吧</small>';
+      btn = '点亮我的树';
+      act = () => { location.href = `${BASE_URL}?from=${encodeURIComponent(state.tree.id)}`; };
+    } else {
+      text = `帮 <b>${esc(state.tree.ownerName)}</b> 挂一张照片<small>就能点亮你自己的圣诞树</small>`;
+      btn = '挂一张照片';
+      act = openDeco;
+    }
+  } else {
+    text = `邀请朋友来装饰你的树<small>每人挂一张照片 · 最多 ${MAX_FRIENDS} 位</small>`;
+    btn = '邀请朋友';
+    act = inviteFriends;
+  }
+  ui.cardText.innerHTML = text;
+  ui.cardBtn.textContent = btn;
+  ui.cardBtn.onclick = act;
+  on(ui.card);
+}
+ui.cardClose.addEventListener('click', () => on(ui.card, false));
 
 /* ---------- 分享 ---------- */
 const shareLinkFor = (id) => `${BASE_URL}?t=${encodeURIComponent(id)}`;
@@ -897,29 +1150,15 @@ function loadScript(src) {
   return scriptCache[src];
 }
 
-async function createShare(name) {
-  loading('正在创建你的共享树');
-  try {
-    const tree = await api.createTree(name);
-    rememberMyTree(tree);
-    loading();
-    openSheet(shareLinkFor(tree.id), true, tree.id);
-  } catch (e) {
-    loading();
-    toast('创建失败：' + (e.message || '请检查网络'));
-  }
-}
-
-async function openSheet(link, mine, openId) {
+async function openSheet(link, mine) {
   ui.shareLink.value = link;
   ui.sheetTitle.textContent = mine ? '邀请朋友来装饰你的树' : '把这棵树分享给朋友';
   ui.sheetSub.textContent = mine
     ? `每位朋友可以挂上一张照片 · 最多 ${MAX_FRIENDS} 位`
-    : `还能挂 ${Math.max(0, MAX_FRIENDS - state.remote.length)} 张照片`;
+    : `还能挂 ${Math.max(0, MAX_FRIENDS - friendCount())} 张照片`;
   ui.demoNote.hidden = cloudEnabled;
   ui.nativeShare.hidden = !navigator.share;
-  ui.openMine.hidden = !openId;
-  ui.openMine.onclick = () => { location.href = shareLinkFor(openId); };
+  ui.openMine.hidden = true;
   ui.qr.innerHTML = '';
   ui.qr.hidden = false;
   on(ui.sheet);
@@ -993,6 +1232,7 @@ function openLightbox(i) {
   const p = list[lbIndex];
   ui.lbImg.src = p.src;
   ui.lbWho.textContent = p.nickname ? `— ${p.nickname}` : '';
+  ui.lbMsg.textContent = p.message ? `「${p.message}」` : '';
   ui.lbWhen.textContent = fmtDate(p.createdAt);
   ui.lbPrev.hidden = ui.lbNext.hidden = list.length < 2;
   on(ui.lightbox);
@@ -1059,16 +1299,14 @@ ui.dock.addEventListener('click', (e) => {
   const act = b.dataset.act;
   if (act === 'replay') replay();
   else if (act === 'album') openAlbum();
-  else if (act === 'invite') {
-    if (state.mode === 'local') createShare(state.nickname);
-    else openSheet(shareLinkFor(state.tree.id), state.mode === 'owner');
-  } else if (act === 'new') {
-    location.href = BASE_URL;
+  else if (act === 'invite') inviteFriends();
+  else if (act === 'new') {
+    location.href = state.mode === 'visit' ? `${BASE_URL}?from=${encodeURIComponent(state.tree.id)}` : BASE_URL;
   }
 });
 function setupDock() {
   ui.inviteLabel.textContent = state.mode === 'visit' ? '分享' : '邀请朋友';
-  ui.newLabel.textContent = state.mode === 'visit' ? '我也要一棵' : state.mode === 'owner' ? '新的树' : '重新制作';
+  ui.newLabel.textContent = state.mode === 'visit' ? '我也要一棵' : '新的树';
 }
 
 /* ---------- 声音按钮 ---------- */
@@ -1271,6 +1509,40 @@ async function runShow({ featured, prehung }) {
   startFinale();
 }
 
+const BLESSINGS = ['圣诞快乐', '天天开心', '心想事成'];
+const BLESS_COLORS = {
+  '圣诞快乐': ['#ffd166', '#ff4d5e'],
+  '天天开心': ['#ffb3c6', '#ffd6a5'],
+  '心想事成': ['#ffe08a', '#b388ff'],
+};
+const textMorph = { current: '圣诞快乐', last: -10 };
+function blessColorFn(text) {
+  const [a, b] = BLESS_COLORS[text].map((c) => new THREE.Color(c));
+  const white = new THREE.Color('#fff6dc');
+  const aspect = textInfo ? textInfo.aspect : 4;
+  return (t) => {
+    if (Math.random() < 0.12) return white;
+    const k = 0.5 + 0.5 * Math.sin(t[0] * Math.PI * 2.2 + t[1] * aspect);
+    return a.clone().lerp(b, k * 0.75);
+  };
+}
+function morphText(origin) {
+  if (!textInfo || clock - textMorph.last < 1.3) return;
+  textMorph.last = clock;
+  const choices = BLESSINGS.filter((b) => b !== textMorph.current);
+  const next = choices[(Math.random() * choices.length) | 0];
+  textMorph.current = next;
+  textInfo = sampleText(next, TEXT_COUNT);
+  const pts = textInfo.pts.map(([x, y]) => [x, y, rand(-0.12, 0.12)]);
+  for (let i = pts.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [pts[i], pts[j]] = [pts[j], pts[i]];
+  }
+  fw.morphText(pts, textLayout(), blessColorFn(next), origin);
+  sound.chime(5);
+  on(ui.swipeTip, false);
+}
+
 async function startFinale() {
   const gen = generation;
   const s0 = treeGroup.scale.x, y0 = treeGroup.position.y;
@@ -1279,18 +1551,12 @@ async function startFinale() {
     treeGroup.position.y = y0 + (FINALE_Y - y0) * e;
   });
 
+  textMorph.current = '圣诞快乐';
   textInfo = sampleText('圣诞快乐', TEXT_COUNT);
-  const aspect = textInfo.aspect;
   const targets = textInfo.pts.map(([x, y]) => [x, y, rand(-0.12, 0.12)]);
   targets.sort((a, b) => a[0] - b[0]);
   const gold = new THREE.Color('#ffd166');
-  const red = new THREE.Color('#ff4d5e');
-  const white = new THREE.Color('#fff6dc');
-  const colorFn = (t) => {
-    if (Math.random() < 0.12) return white;
-    const k = 0.5 + 0.5 * Math.sin(t[0] * Math.PI * 2.2 + t[1] * aspect);
-    return gold.clone().lerp(red, k * 0.75);
-  };
+  const colorFn = blessColorFn('圣诞快乐');
   const groups = 4;
   const per = Math.ceil(targets.length / groups);
   for (let g = 0; g < groups; g++) {
@@ -1310,6 +1576,8 @@ async function startFinale() {
   if (gen !== generation) return;
   finale = { nextLaunch: clock + 0.3 };
   on(ui.dock);
+  showCard();
+  after(1.2, () => { on(ui.swipeTip); after(4, () => on(ui.swipeTip, false)); });
 }
 
 function launchRandomFirework() {
@@ -1340,7 +1608,9 @@ function resetShow() {
   star.target = star.v = star.flash = 0;
   treeGroup.scale.setScalar(1);
   treeGroup.position.y = 0;
-  [ui.caption, ui.dock, ui.hint, ui.ask].forEach((el) => on(el, false));
+  [ui.caption, ui.dock, ui.hint, ui.ask, ui.card, ui.swipeTip].forEach((el) => on(el, false));
+  textMorph.current = '圣诞快乐';
+  burst.target = burst.v = burst.vel = 0;
   state.photos.forEach((p) => {
     p.state = 'idle';
     if (p.mesh) p.mesh.visible = false;
@@ -1380,37 +1650,89 @@ function sparkleAt(x, y) {
 
 let drag = null;
 let yawVel = 0;
+const burst = { v: 0, vel: 0, target: 0 };
+const planeZ0 = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const hitV = new THREE.Vector3();
+function worldAt(x, y, plane) {
+  ndc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  return raycaster.ray.intersectPlane(plane, hitV);
+}
+function overText(x, y) {
+  if (!textInfo) return false;
+  const w = worldAt(x, y, planeZ0);
+  if (!w) return false;
+  const L = textLayout();
+  const H = L.W / textInfo.aspect;
+  return Math.abs(w.x) < L.W * 0.56 && Math.abs(w.y - L.cy) < H * 0.75 + 0.5;
+}
+function starHit(x, y) {
+  if (star.v < 0.5) return false;
+  const v = treeGroup.localToWorld(tmpV.set(0, STAR_Y, 0)).project(camera);
+  return Math.hypot((v.x * 0.5 + 0.5) * innerWidth - x, (0.5 - v.y * 0.5) * innerHeight - y) < 46;
+}
+const SHOWER = C(['#fff3c4', '#ffd77a', '#ffffff', '#ffc8dd', '#a0c4ff']);
+function starShower() {
+  star.flash = 0.9;
+  const p = treeGroup.localToWorld(tmpV.set(0, STAR_Y, 0));
+  fw.burst(p.x, p.y, p.z, { count: IS_MOBILE ? 130 : 240, speed: 3.6, colors: SHOWER, size: 0.85, life: 2.6, grav: 2.4 });
+  sound.chime(7);
+}
+
 canvas.addEventListener('pointerdown', (e) => {
-  drag = { x: e.clientX, sx: e.clientX, sy: e.clientY, moved: false };
+  drag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false, axis: null, text: overText(e.clientX, e.clientY), path: 0, swiped: false };
   canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener('pointermove', (e) => {
-  sparkleAt(e.clientX, e.clientY);
+  const x = e.clientX, y = e.clientY;
+  sparkleAt(x, y);
   if (!drag) {
     if (!IS_MOBILE) {
-      const p = pickPhoto(e.clientX, e.clientY);
+      const p = pickPhoto(x, y);
       state.photos.forEach((q) => { q.hover = q === p; });
-      canvas.classList.toggle('pointer', !!p);
+      canvas.classList.toggle('pointer', !!p || starHit(x, y) || overText(x, y));
     }
     return;
   }
-  const dx = e.clientX - drag.x;
-  drag.x = e.clientX;
-  if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) > 8) drag.moved = true;
-  const d = (dx / innerWidth) * Math.PI * 1.6;
-  treeGroup.rotation.y += d;
-  yawVel = d * 30;
+  const dx = x - drag.x, dy = y - drag.y;
+  drag.x = x;
+  drag.y = y;
+  if (Math.abs(x - drag.sx) + Math.abs(y - drag.sy) > 8) drag.moved = true;
+  // 在祝福文字上划过：推开粒子，划够一段就换一句祝福
+  if (drag.text) {
+    drag.path += Math.hypot(dx, dy);
+    const w = worldAt(x, y, planeZ0);
+    if (w) fw.repel(w.x, w.y, 1.3, 0.35);
+    if (!drag.swiped && drag.path > 50 && w) {
+      drag.swiped = true;
+      morphText(w.clone());
+    }
+    return;
+  }
+  if (!drag.axis && drag.moved) drag.axis = Math.abs(x - drag.sx) >= Math.abs(y - drag.sy) ? 'x' : 'y';
+  if (drag.axis === 'x') {
+    const d = (dx / innerWidth) * Math.PI * 1.6;
+    treeGroup.rotation.y += d;
+    yawVel = d * 30;
+  } else if (drag.axis === 'y') {
+    // 上下拖：把粒子打散，越远散得越开
+    const d = (drag.sy - y) / (innerHeight * 0.32);
+    burst.target = Math.min(1.25, Math.abs(d));
+    U.uBurstDir.value = d >= 0 ? 1 : -1;
+  }
 });
 canvas.addEventListener('pointerup', (e) => {
   if (drag && !drag.moved) {
-    if (!onTriggerNext()) {
+    if (starHit(e.clientX, e.clientY)) starShower();
+    else if (!onTriggerNext()) {
       const p = pickPhoto(e.clientX, e.clientY);
       if (p) openLightbox(state.photos.indexOf(p));
     }
   }
+  burst.target = 0;
   drag = null;
 });
-canvas.addEventListener('pointercancel', () => { drag = null; });
+canvas.addEventListener('pointercancel', () => { burst.target = 0; drag = null; });
 addEventListener('keydown', (e) => {
   if (e.code === 'Space' && document.activeElement !== ui.nick) {
     e.preventDefault();
@@ -1452,6 +1774,7 @@ function placeCaption() {
 }
 
 const centerV = new THREE.Vector3();
+let nextMeteor = 3;
 let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
@@ -1465,6 +1788,18 @@ function frame(now) {
 
   treeGroup.rotation.y += (0.16 + yawVel) * dt;
   yawVel *= Math.exp(-dt * 2.5);
+  // 打散的弹簧：跟手时很快，松手后带一点回弹地复原
+  burst.vel += (burst.target - burst.v) * 70 * dt;
+  burst.vel *= Math.exp(-dt * 10);
+  burst.v += burst.vel * dt;
+  U.uBurst.value = Math.max(-0.15, burst.v);
+  groundGroup.position.y = treeGroup.position.y + (TREE_BASE - 0.06) * treeGroup.scale.y;
+  if (clock > nextMeteor) {
+    nextMeteor = clock + rand(5, 11);
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    const top = LOOK.y + view.visH * 0.62;
+    fw.meteor(rand(-0.7, 0.7) * view.visW * 1.4, top - rand(0, view.visH * 0.2), -14, dir * rand(11, 17), -rand(5, 9), rand(0.9, 1.4));
+  }
   treeGroup.updateMatrixWorld();
   centerV.set(0, treeGroup.position.y, 0).applyMatrix4(camera.matrixWorldInverse);
   U.uCenterZ.value = centerV.z;
@@ -1549,4 +1884,4 @@ async function boot() {
 }
 boot();
 
-window.__xmas = { state, view, startFinale };
+window.__xmas = { state, view, startFinale, textMorph, burst };

@@ -1,4 +1,6 @@
--- 圣诞树共享功能：在 Supabase 控制台 → SQL Editor 里整段粘贴运行一次即可
+-- 圣诞树共享功能：在 Supabase 控制台 → SQL Editor 里整段粘贴运行（可重复运行）
+
+create extension if not exists pgcrypto with schema extensions;
 
 -- 1) 树
 create table if not exists public.trees (
@@ -6,8 +8,10 @@ create table if not exists public.trees (
   owner_name  text not null check (char_length(owner_name) between 1 and 16),
   created_at  timestamptz not null default now()
 );
+-- 主人密钥的哈希：只有知道密钥的人（创建者的浏览器）才能以「主人」身份挂照片
+alter table public.trees add column if not exists owner_key_hash text;
 
--- 2) 朋友挂上去的照片
+-- 2) 照片
 create table if not exists public.photos (
   id          uuid primary key default gen_random_uuid(),
   tree_id     text not null references public.trees(id) on delete cascade,
@@ -15,32 +19,50 @@ create table if not exists public.photos (
   path        text not null check (char_length(path) < 200),
   created_at  timestamptz not null default now()
 );
+alter table public.photos add column if not exists is_owner  boolean not null default false;
+alter table public.photos add column if not exists message   text;
+alter table public.photos add column if not exists owner_key text; -- 只在插入时校验用，触发器会清空
+alter table public.photos drop constraint if exists photos_message_len;
+alter table public.photos add constraint photos_message_len check (message is null or char_length(message) <= 60);
 create index if not exists photos_tree_idx on public.photos (tree_id, created_at);
 
--- 3) 权限：任何人可以读、可以新增；不能修改、不能删除
+-- 3) 行级权限：任何人可以读、可以新增；不能修改、不能删除
 alter table public.trees  enable row level security;
 alter table public.photos enable row level security;
-
-drop policy if exists "trees read"   on public.trees;
-drop policy if exists "trees insert" on public.trees;
-drop policy if exists "photos read"  on public.photos;
+drop policy if exists "trees read"    on public.trees;
+drop policy if exists "trees insert"  on public.trees;
+drop policy if exists "photos read"   on public.photos;
 drop policy if exists "photos insert" on public.photos;
 create policy "trees read"    on public.trees  for select using (true);
 create policy "trees insert"  on public.trees  for insert with check (true);
 create policy "photos read"   on public.photos for select using (true);
 create policy "photos insert" on public.photos for insert with check (true);
 
--- 4) 每棵树最多 10 张照片（并发安全）
+-- 4) 规则：主人最多 10 张（需密钥），朋友最多 10 位；并发安全
 create or replace function public.limit_photos() returns trigger
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  key_hash text;
 begin
   perform pg_advisory_xact_lock(hashtext(new.tree_id));
   if new.path not like new.tree_id || '/%' then
     raise exception 'bad_path';
   end if;
-  if (select count(*) from public.photos where tree_id = new.tree_id) >= 10 then
-    raise exception 'tree_full';
+  if new.is_owner then
+    select owner_key_hash into key_hash from public.trees where id = new.tree_id;
+    if new.owner_key is null or key_hash is null
+       or encode(extensions.digest(new.owner_key, 'sha256'), 'hex') <> key_hash then
+      raise exception 'bad_owner';
+    end if;
+    if (select count(*) from public.photos where tree_id = new.tree_id and is_owner) >= 10 then
+      raise exception 'tree_full';
+    end if;
+  else
+    if (select count(*) from public.photos where tree_id = new.tree_id and not is_owner) >= 10 then
+      raise exception 'tree_full';
+    end if;
   end if;
+  new.owner_key := null;
   return new;
 end $$;
 
