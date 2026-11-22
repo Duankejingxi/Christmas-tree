@@ -1062,6 +1062,7 @@ function setFan(srcs) {
 }
 // cfg: { fan, title, sub, primary: [text, fn], secondary?: [text, fn], foot, fab }
 function openCta(cfg) {
+  if (cfg.noFab) cfg.prev = fabCfg && !fabCfg.noFab ? fabCfg : (fabCfg && fabCfg.prev) || null;
   fabCfg = cfg;
   hideFab();
   setFan(cfg.fan || []);
@@ -1142,8 +1143,18 @@ function hideFab() {
   clearInterval(sparkTimer);
 }
 ui.fab.addEventListener('click', () => { if (fabCfg) openCta(fabCfg); });
-ui.ctaClose.addEventListener('click', () => closeToFab(ui.ctaCard, ui.cta));
-ui.cta.addEventListener('click', (e) => { if (e.target === ui.cta) closeToFab(ui.ctaCard, ui.cta); });
+function dismissCta() {
+  if (fabCfg && fabCfg.noFab) {
+    // 确认类弹窗：直接关掉，恢复之前右上角的按钮
+    on(ui.cta, false);
+    fabCfg = fabCfg.prev;
+    if (fabCfg) showFab();
+    return;
+  }
+  closeToFab(ui.ctaCard, ui.cta);
+}
+ui.ctaClose.addEventListener('click', dismissCta);
+ui.cta.addEventListener('click', (e) => { if (e.target === ui.cta) dismissCta(); });
 
 /* ---------- 结束后根据身份弹出 ---------- */
 function photoSrcs(filter) {
@@ -1478,7 +1489,94 @@ ui.dock.addEventListener('click', (e) => {
   if (act === 'replay') replay();
   else if (act === 'album') openAlbum();
   else if (act === 'save') saveShot();
+  else if (act === 'add') ui.addFile.click();
+  else if (act === 'redo') confirmRedo();
+  else if (act === 'mine') {
+    if (hasDecorated(state.tree.id) || friendCount() >= MAX_FRIENDS) goMine();
+    else openDeco();
+  }
 });
+function setupDock() {
+  const owner = state.mode !== 'visit';
+  ui.dock.querySelectorAll('[data-for]').forEach((b) => {
+    b.hidden = (b.dataset.for === 'owner') !== owner;
+  });
+}
+
+/* ---------- 重新做一棵 ---------- */
+function confirmRedo() {
+  openCta({
+    title: '要重新做一棵圣诞树吗？',
+    sub: '现在这棵树和朋友们挂的照片都会保留<br>之后可以在首页「打开我上次做的圣诞树」',
+    primary: ['重新做一棵', () => { location.href = BASE_URL; }],
+    secondary: ['再看看这棵', dismissCta],
+    noFab: true,
+  });
+}
+
+/* ---------- 做好之后继续加照片（主人） ---------- */
+function ownerKeyFor(id) {
+  const t = myTrees().find((x) => x.id === id);
+  return t && t.key;
+}
+ui.addFile = $('addFile');
+ui.addFile.addEventListener('change', async () => {
+  const files = [...ui.addFile.files].filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(f.name));
+  ui.addFile.value = '';
+  if (!files.length) return;
+  const room = MAX_LOCAL - state.photos.filter((p) => p.isOwner).length;
+  if (room <= 0) { toast(`你自己最多放 ${MAX_LOCAL} 张照片`); return; }
+  if (files.length > room) toast(`还能放 ${room} 张，已保留前 ${room} 张`);
+  addOwnerPhotos(files.slice(0, room));
+});
+async function addOwnerPhotos(files) {
+  const gen = generation;
+  let tree, key;
+  try {
+    tree = state.mode === 'local' ? await ensureShared(state.photos.filter((p) => p.isOwner)) : state.tree;
+    key = ownerKeyFor(tree.id);
+  } catch (e) {
+    toast('保存失败：' + (e.message || '请检查网络'));
+    return;
+  }
+  if (!key) {
+    toast('这棵树是旧版本做的，不能再加照片了，点「重新做」做一棵新的吧', 4500);
+    return;
+  }
+  const name = ownerName();
+  const added = [];
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    const p = { nickname: name, src: URL.createObjectURL(f), blob: f, isOwner: true, createdAt: new Date(Date.now() + i).toISOString() };
+    try { await preparePhoto(p); } catch (e) { continue; }
+    added.push(p);
+  }
+  if (!added.length) { toast('照片读取失败，换一张试试'); return; }
+  // 后台上传
+  const uploads = added.map(async (p) => {
+    const blob = await compressImage(p.blob);
+    const row = await api.addPhoto(tree.id, name, blob, { ownerKey: key });
+    p.id = row.id;
+    p.remoteUrl = row.url;
+    state.remote.push(row);
+  });
+  on(ui.dock, false);
+  on(ui.cta, false);
+  added.forEach((p) => { state.photos.push(p); showArgs.prehung.push(p); });
+  placePhotos([...state.photos].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)), showArgs.seed);
+  for (const p of added) {
+    if (gen !== generation) return;
+    await showPhoto(p);
+    hangPhoto(p, 0.05);
+  }
+  const res = await Promise.allSettled(uploads);
+  if (gen !== generation) return;
+  on(ui.dock);
+  const bad = res.filter((r) => r.status === 'rejected');
+  if (!bad.length) toast(`已加上 ${added.length} 张照片，朋友打开也能看到 ✨`);
+  else if (bad.some((r) => r.reason instanceof TreeFullError)) toast('你自己最多放 10 张照片，多出的没有保存');
+  else toast(`有 ${bad.length} 张没能保存，请检查网络后再试`);
+}
 
 /* ---------- 声音 ---------- */
 ui.soundBtn.addEventListener('click', (e) => {
@@ -1520,6 +1618,7 @@ async function start(args) {
   args.prehung = args.prehung.filter((p) => p.mesh);
   args.featured = args.featured.filter((p) => p.mesh);
   state.photos = [...args.prehung, ...args.featured];
+  setupDock();
   // 按上传时间顺序放置，保证每个人看到的位置一致
   const ordered = [...state.photos].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
   placePhotos(ordered, args.seed);
