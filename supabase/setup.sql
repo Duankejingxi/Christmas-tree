@@ -42,7 +42,7 @@ create policy "trees insert"  on public.trees  for insert with check (true);
 create policy "photos read"   on public.photos for select using (true);
 create policy "photos insert" on public.photos for insert with check (true);
 
--- 4) 规则：主人最多 10 张（需密钥），朋友最多 10 位；并发安全
+-- 4) 规则：主人最多 10 张（需密钥），朋友不限（安全上限 500）；并发安全
 create or replace function public.limit_photos() returns trigger
 language plpgsql security definer set search_path = public, extensions as $$
 declare
@@ -62,7 +62,8 @@ begin
       raise exception 'tree_full';
     end if;
   else
-    if (select count(*) from public.photos where tree_id = new.tree_id and not is_owner) >= 10 then
+    -- 朋友人数不限（每人一张由前端控制），这里只设一个防刷的安全上限
+    if (select count(*) from public.photos where tree_id = new.tree_id and not is_owner) >= 500 then
       raise exception 'tree_full';
     end if;
   end if;

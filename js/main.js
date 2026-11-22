@@ -888,8 +888,12 @@ function polaroidCanvas(img, caption) {
   return cv;
 }
 
-async function preparePhoto(p) {
-  if (p.mesh) return;
+function preparePhoto(p) {
+  if (p.mesh) return Promise.resolve();
+  if (!p._loading) p._loading = buildPhotoMesh(p).finally(() => { p._loading = null; });
+  return p._loading;
+}
+async function buildPhotoMesh(p) {
   const img = await loadImage(p.src);
   const cv = polaroidCanvas(img, p.nickname);
   const tex = new THREE.CanvasTexture(cv);
@@ -904,6 +908,12 @@ async function preparePhoto(p) {
 }
 
 // 在圆锥表面做「最佳候选」采样：均匀但不会排成一排排；共享树用树 id 做种子，所有人看到同样的布局
+// 算法是逐个确定的：同一个种子下，前 n 个位置永远一样，所以增加挂点不会挪动已有的照片
+function slotPositions(n, seed) {
+  const list = Array.from({ length: n }, () => ({}));
+  placePhotos(list, seed);
+  return list.map((o) => o.local);
+}
 function placePhotos(list, seed) {
   const rnd = seeded(seed);
   const yMin = TREE_BASE + 1.4;
@@ -933,8 +943,100 @@ function placePhotos(list, seed) {
   }
 }
 
+/* ---------- 树上最多挂 10 张，其余照片排队轮换 ---------- */
+const MAX_ON_TREE = 10;
+let slots = [];      // { local, photo, armed }
+let queue = [];      // 暂时没挂在树上的照片
+let swapOn = false;  // 开场动画结束后才开始轮换
+let slotSeed = 'x';
+function assignSlot(slot, p) {
+  slot.photo = p;
+  if (p) { p.local = slot.local; p.slot = slot; }
+}
+function setupSlots(list, seed) {
+  slotSeed = seed;
+  const n = Math.min(MAX_ON_TREE, list.length);
+  const pts = slotPositions(n, seed);
+  slots = pts.map((local) => ({ local, photo: null, armed: false }));
+  slots.forEach((sl, i) => assignSlot(sl, list[i]));
+  queue = list.slice(n);
+  queue.forEach((p) => { p.slot = null; });
+}
+function onTree() { return slots.map((sl) => sl.photo).filter(Boolean); }
+function disposePhoto(p) {
+  if (!p.mesh) return;
+  photoScene.remove(p.mesh);
+  p.mesh.material.map.dispose();
+  p.mesh.material.dispose();
+  p.mesh.geometry.dispose();
+  p.mesh = null;
+  p.prep = null;
+}
+// 提前准备队列最前面的几张，转到背面时可以立刻换上
+function prefetch() {
+  queue.slice(0, 3).forEach((p) => {
+    if (p.mesh || p.prep || p.bad) return;
+    p.prep = preparePhoto(p).catch(() => { p.bad = true; p.prep = null; });
+  });
+  queue = queue.filter((p) => !p.bad);
+}
+const slotW = new THREE.Vector3();
+function slotFront(sl) {
+  treeGroup.localToWorld(slotW.copy(sl.local));
+  return (slotW.z - treeGroup.position.z) / (TREE_R * treeGroup.scale.x + 0.4);
+}
+// 照片转到树背面时，悄悄换成队列里的下一张
+function rotateSlots() {
+  if (!swapOn || !queue.length) return;
+  for (const sl of slots) {
+    const cur = sl.photo;
+    if (!cur || cur.state !== 'hang' || cur.t < 1) continue;
+    const f = slotFront(sl);
+    if (f > 0.35) { sl.armed = true; continue; }
+    if (!sl.armed || f > -0.55) continue;
+    const idx = queue.findIndex((q) => q.mesh);
+    if (idx < 0) { prefetch(); return; }
+    const next = queue.splice(idx, 1)[0];
+    cur.state = 'idle';
+    if (cur.mesh) cur.mesh.visible = false;
+    cur.slot = null;
+    queue.push(cur);
+    if (queue.length > 4) disposePhoto(cur); // 释放显存，轮到它时再加载
+    assignSlot(sl, next);
+    next.state = 'hang';
+    next.t = 1;
+    next.mesh.visible = true;
+    sl.armed = false;
+    prefetch();
+  }
+}
+// 新照片（朋友刚挂的 / 主人刚加的）放到最靠前的位置，被替换下来的排到队首，很快会再出现
+function insertPhoto(p, avoid = []) {
+  if (slots.length < MAX_ON_TREE) {
+    const pts = slotPositions(slots.length + 1, slotSeed);
+    const sl = { local: pts[pts.length - 1], photo: null, armed: false };
+    slots.push(sl);
+    assignSlot(sl, p);
+    return;
+  }
+  let best = null, bf = -Infinity;
+  for (const sl of slots) {
+    if (avoid.includes(sl)) continue;
+    const f = slotFront(sl);
+    if (f > bf) { bf = f; best = sl; }
+  }
+  const old = best.photo;
+  if (old) {
+    old.state = 'idle';
+    if (old.mesh) old.mesh.visible = false;
+    old.slot = null;
+    queue.unshift(old);
+  }
+  assignSlot(best, p);
+}
+
 const hungHeight = () => {
-  const n = state.photos.length;
+  const n = slots.length;
   return n <= 3 ? 1.95 : n <= 6 ? 1.68 : n <= 10 ? 1.45 : n <= 15 ? 1.26 : 1.12;
 };
 
@@ -1210,7 +1312,7 @@ ui.go.addEventListener('click', () => {
   }));
   // 点亮的同时在后台把树存到云端，这样随时可以分享
   ensureShared(photos).catch(() => {});
-  start({ featured: photos, prehung: [], seed: 'local-' + Math.random() });
+  start({ list: photos, featured: photos, seed: 'local-' + Math.random() });
 });
 ui.nick.addEventListener('keydown', (e) => { if (e.key === 'Enter') ui.go.click(); });
 
@@ -1441,7 +1543,7 @@ function finaleModal() {
       label: '你的树',
       fan: photoSrcs(() => true),
       title: state.mode === 'owner' && n ? `已经有 <b>${n} 位朋友</b><br>来挂过照片了` : '树种好了<br>寄给朋友吧',
-      sub: `朋友打开链接，可以在你的树上挂一张照片、留一句话。最多 ${MAX_FRIENDS} 位。`,
+      sub: '朋友打开链接，可以在你的树上挂一张照片、留一句话。树上一次挂 10 张，转起来会轮流换上新的。',
       primary: ['复制链接，寄出去', inviteFriends],
       secondary: ['存一张到相册', saveShot],
       foot: '也可以 <button class="text-link" id="qrLink">用二维码寄</button>',
@@ -1523,8 +1625,7 @@ async function runDecorate(name, message, file, url) {
     return;
   }
   state.photos.push(mine);
-  showArgs.prehung.push(mine);
-  placePhotos([...state.photos].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)), state.tree.id);
+  insertPhoto(mine);
   await showPhoto(mine);
   if (gen !== generation) return;
   hangPhoto(mine, 0.05);
@@ -1607,7 +1708,7 @@ function loadScript(src) {
 async function openSheet(link, mine) {
   ui.shareLink.value = link;
   ui.sheetTitle.textContent = '把树寄给朋友';
-  ui.sheetSub.textContent = mine ? `扫码或复制链接，朋友就能来挂照片（最多 ${MAX_FRIENDS} 位）` : '扫码或复制链接，转给更多朋友';
+  ui.sheetSub.textContent = mine ? '扫码或复制链接，朋友就能来挂照片，每人一张' : '扫码或复制链接，转给更多朋友';
   ui.demoNote.hidden = cloudEnabled;
   ui.nativeShare.hidden = !navigator.share;
   ui.qr.innerHTML = '';
@@ -1869,8 +1970,12 @@ async function addOwnerPhotos(files) {
   });
   on(ui.dock, false);
   on(ui.cta, false);
-  added.forEach((p) => { state.photos.push(p); showArgs.prehung.push(p); });
-  placePhotos([...state.photos].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)), showArgs.seed);
+  const used = [];
+  added.forEach((p) => {
+    state.photos.push(p);
+    insertPhoto(p, used);
+    if (p.slot) used.push(p.slot);
+  });
   if (added.length === 1) {
     // 一张：快速放大一下再挂上
     await showPhoto(added[0], true);
@@ -1912,8 +2017,8 @@ let finale = null;
 let reveal = { active: false };
 let showArgs = null;
 
+// args: { list: 全部照片（按优先顺序，前 10 张先挂上）, featured: 需要逐张放大展示的, seed }
 async function start(args) {
-  showArgs = args;
   sound.unlock();
   if (sound.enabled) sound.startMusic();
   ui.soundBtn.hidden = false;
@@ -1921,27 +2026,33 @@ async function start(args) {
   ui.landing.classList.add('is-off');
   ui.go.disabled = true;
 
-  const all = [...args.prehung, ...args.featured];
+  // 只准备先挂上树的 10 张，其余的轮到时再加载
+  let list = args.list.slice();
+  const first = list.slice(0, MAX_ON_TREE);
   const slow = setTimeout(() => loading('正在准备照片'), 600);
-  const results = await Promise.allSettled(all.map(preparePhoto));
+  const results = await Promise.allSettled(first.map((p) => (p.prep = preparePhoto(p))));
   clearTimeout(slow);
   loading();
-  const bad = results.filter((r) => r.status === 'rejected').length;
-  if (bad) toast(`有 ${bad} 张照片没能读取，已跳过`);
-  args.prehung = args.prehung.filter((p) => p.mesh);
-  args.featured = args.featured.filter((p) => p.mesh);
-  state.photos = [...args.prehung, ...args.featured];
+  const badSet = new Set(first.filter((p, i) => results[i].status === 'rejected'));
+  if (badSet.size) toast(`有 ${badSet.size} 张照片没能读取，已跳过`);
+  list = list.filter((p) => !badSet.has(p));
+  // 失败的位置由后面的照片补上（需要再准备一下）
+  await Promise.allSettled(list.slice(0, MAX_ON_TREE).filter((p) => !p.mesh).map(preparePhoto));
+  list = list.filter((p, i) => i >= MAX_ON_TREE || p.mesh);
+  state.photos = list.slice();
+  setupSlots(list, args.seed);
+  const shown = onTree();
+  const featured = (args.featured || []).filter((p) => shown.includes(p));
+  showArgs = { featured, prehung: shown.filter((p) => !featured.includes(p)), seed: args.seed };
   setupDock();
-  // 按上传时间顺序放置，保证每个人看到的位置一致
-  const ordered = [...state.photos].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
-  placePhotos(ordered, args.seed);
   resetShow();
-  runShow(args);
+  runShow(showArgs);
+  prefetch();
 }
 
 function replay() {
   resetShow();
-  runShow(showArgs);
+  runShow({ featured: [], prehung: onTree() });
 }
 
 function captionText() {
@@ -2004,6 +2115,7 @@ async function runShow({ featured, prehung }) {
     if (!alive()) return;
   }
 
+  swapOn = true;
   startFinale();
 }
 
@@ -2091,6 +2203,8 @@ function launchRandomFirework() {
 
 function resetShow() {
   generation++;
+  swapOn = false;
+  slots.forEach((sl) => { sl.armed = false; });
   timers = [];
   tweens = [];
   finale = null;
@@ -2374,6 +2488,7 @@ function frame(now) {
   starFlash.scale.setScalar(Math.max(0.001, 2 + (1 - star.flash) * 9));
 
   updateBaubles();
+  rotateSlots();
   // 竖屏结尾时祝福字在上方，月亮淡出让位
   const moonTarget = textInfo && camera.aspect < 0.8 ? 0 : 0.6;
   moon.material.opacity += (moonTarget - moon.material.opacity) * (1 - Math.exp(-dt * 2));
@@ -2427,14 +2542,16 @@ async function boot() {
         document.body.classList.remove('booting');
         const owners = state.remote.filter((r) => r.isOwner).map(remoteToPhoto);
         const friends = state.remote.filter((r) => !r.isOwner).map(remoteToPhoto);
+        const newest = [...friends].reverse(); // 最新的朋友排前面
         if (state.mode === 'visit') {
-          // 朋友打开：树画出来、照片挂上去，很快就能看到按钮
-          start({ featured: [], prehung: [...owners, ...friends], seed: tree.id });
+          // 朋友打开：先挂主人的照片，再挂最新的朋友照片，其余的随着转动轮换
+          start({ list: [...owners, ...newest], featured: [], seed: tree.id });
         } else {
-          // 主人回来：朋友们挂的照片逐张放大
-          start(friends.length
-            ? { featured: friends, prehung: owners, seed: tree.id }
-            : { featured: owners, prehung: [], seed: tree.id });
+          // 主人回来：最新的朋友照片（最多 10 张）逐张放大，其余轮换
+          const recent = newest.slice(0, MAX_ON_TREE).reverse();
+          start(recent.length
+            ? { list: [...recent, ...owners, ...newest.slice(MAX_ON_TREE)], featured: recent, seed: tree.id }
+            : { list: owners, featured: owners, seed: tree.id });
         }
         return;
       }
@@ -2454,4 +2571,4 @@ async function boot() {
 }
 boot();
 
-window.__xmas = { state, view, startFinale, textMorph, burst };
+window.__xmas = { state, view, startFinale, textMorph, burst, get slots() { return slots; }, get queue() { return queue; }, photoScene, treeGroup };

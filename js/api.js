@@ -1,7 +1,7 @@
 // 共享圣诞树的数据层：Supabase（云端）或 localStorage（本机演示）
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 
-export const MAX_FRIENDS = 10;
+export const MAX_FRIENDS = 500; // 朋友人数实际不限，这里只是防刷的安全上限
 export const MAX_OWNER = 10;
 export const cloudEnabled = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 
