@@ -70,6 +70,19 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, IS_MOBILE ? 1.5 : 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.autoClear = false;
 
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  let last = 0;
+  try { last = +sessionStorage.getItem('xmas.lost') || 0; sessionStorage.setItem('xmas.lost', String(Date.now())); } catch (err) { /* ignore */ }
+  const el = document.getElementById('toast');
+  // 短时间内反复出错就不再自动刷新，避免死循环
+  if (Date.now() - last < 30000) {
+    if (el) { el.textContent = '手机内存有点紧张，关掉其他页面后刷新试试'; el.classList.add('show'); }
+    return;
+  }
+  if (el) { el.textContent = '画面出了点问题，正在恢复…'; el.classList.add('show'); }
+  setTimeout(() => location.reload(), 900);
+});
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#03050b');
 const photoScene = new THREE.Scene();
@@ -1317,7 +1330,12 @@ async function runDecorate(name, message, file, url) {
 let shotRequest = null;
 let shotBlob = null;
 function captureFrame() {
-  return new Promise((resolve) => { shotRequest = resolve; });
+  return new Promise((resolve, reject) => {
+    shotRequest = resolve;
+    setTimeout(() => {
+      if (shotRequest === resolve) { shotRequest = null; reject(new Error('timeout')); }
+    }, 4000);
+  });
 }
 async function saveShot() {
   loading('正在生成图片');
@@ -1492,20 +1510,30 @@ ui.zipBtn.addEventListener('click', async () => {
 });
 
 /* ---------- 小工具栏 ---------- */
+let dockBusy = 0;
 ui.dock.addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
   const act = b.dataset.act;
+  if (performance.now() - dockBusy < 400) return; // 防止连点
+  dockBusy = performance.now();
+  try {
+    runDockAction(act);
+  } catch (err) {
+    console.warn(err);
+    toast('出了点小问题，再点一次试试');
+  }
+});
+function runDockAction(act) {
   if (act === 'replay') replay();
   else if (act === 'album') openAlbum();
   else if (act === 'save') saveShot();
-  else if (act === 'add') ui.addFile.click();
   else if (act === 'redo') confirmRedo();
   else if (act === 'mine') {
     if (hasDecorated(state.tree.id) || friendCount() >= MAX_FRIENDS) goMine();
     else openDeco();
   }
-});
+}
 function setupDock() {
   const owner = state.mode !== 'visit';
   ui.dock.querySelectorAll('[data-for]').forEach((b) => {
@@ -1531,6 +1559,7 @@ function ownerKeyFor(id) {
   return t && t.key;
 }
 ui.addFile = $('addFile');
+ui.addFile.addEventListener('click', (e) => e.stopPropagation());
 ui.addFile.addEventListener('change', async () => {
   const files = [...ui.addFile.files].filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(f.name));
   ui.addFile.value = '';
@@ -1981,7 +2010,9 @@ function frame(now) {
   if (shotRequest && !shotHiRes) {
     // 截图这一帧用更高的分辨率渲染，图片更清晰
     shotHiRes = true;
-    renderer.setPixelRatio(Math.min(3, Math.max(2, devicePixelRatio)));
+    // 手机显存有限：截图最长边不超过约 2400 像素
+    const cap = (IS_MOBILE ? 2400 : 3600) / Math.max(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.max(perf.pr, Math.min(IS_MOBILE ? 2 : 3, Math.max(2, devicePixelRatio), cap)));
     layout();
   }
   const rawDt = Math.max(0, (now - last) / 1000);

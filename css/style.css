@@ -236,10 +236,13 @@ body.booting .landing { pointer-events: none; }
   z-index: 9;
 }
 .dock.is-on { transform: translate(-50%, 0); }
-.dock button { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 60px; padding: 8px 6px 7px; border-radius: 10px; color: var(--cream-dim); }
-.dock button:hover { color: var(--cream); background: rgba(242, 233, 216, .06); }
-.dock button svg { width: 19px; height: 19px; }
-.dock button span { font-size: 11px; letter-spacing: .06em; white-space: nowrap; }
+.dock button, .dock .dock-btn { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 60px; padding: 8px 6px 7px; border-radius: 10px; color: var(--cream-dim); cursor: pointer; transition: transform .1s, background .15s, color .15s; -webkit-user-select: none; user-select: none; }
+.dock button:hover, .dock .dock-btn:hover { color: var(--cream); background: rgba(242, 233, 216, .06); }
+.dock button:active, .dock .dock-btn:active { transform: scale(.9); color: var(--cream); background: rgba(242, 233, 216, .12); }
+.dock button svg, .dock .dock-btn svg { width: 19px; height: 19px; }
+.dock button span, .dock .dock-btn span { font-size: 11px; letter-spacing: .06em; white-space: nowrap; }
+/* 文件输入框用透明方式藏起来（不用 display:none，部分手机浏览器会点不开） */
+.dock-btn input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
 /* 右上角：弹窗收起后的按钮 */
 .fab {
