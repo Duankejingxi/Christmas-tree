@@ -2008,21 +2008,6 @@ function confirmRedo() {
 }
 
 /* ---------- 做好之后继续加照片（主人） ---------- */
-// 旧版本种的树没有主人钥匙：补发一把（服务器只允许补发一次）
-async function claimOwnerKey(tree) {
-  if (!cloudEnabled) return null;
-  try {
-    const key = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(36).padStart(2, '0')).join('').slice(0, 24);
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
-    const hash = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
-    const ok = await api.claimTree(tree.id, hash);
-    if (!ok) return null;
-    rememberMyTree(tree, key);
-    return key;
-  } catch (e) {
-    return null;
-  }
-}
 function ownerKeyFor(id) {
   const t = myTrees().find((x) => x.id === id);
   return t && t.key;
@@ -2048,7 +2033,6 @@ async function addOwnerPhotos(files) {
     toast('保存失败：' + (e.message || '请检查网络'));
     return;
   }
-  if (!key) key = await claimOwnerKey(tree);
   if (!key) {
     toast('这棵树不是在这台设备上种的，没法加照片。可以回到种树的那台手机/浏览器上加', 5000);
     return;

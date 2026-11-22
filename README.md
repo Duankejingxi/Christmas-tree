@@ -24,39 +24,35 @@
 - 弹窗点 × 收起后，会飞到右上角变成一个发光的按钮，随时可以再点开
 - 做好之后：底部「加照片」可以继续往自己的树上加（你自己最多 10 张），「重新种」可以再种一棵（原来的树会保留）
 
-## 发布成网页（GitHub Pages）
+## 部署到自己的服务器（腾讯云轻量，香港/海外地域 + 自己的域名）
 
-Settings → Pages → Source 选 **Deploy from a branch** → 选分支、目录 `/ (root)` → Save。
-1～2 分钟后访问 `https://<用户名>.github.io/<仓库名>/`。
+网页和后端放在同一台服务器上，国内访问不依赖 GitHub 和 Supabase。
 
-## 开启「邀请朋友」的云端存储（Supabase，免费）
-
-不配置也能用，只是「邀请朋友」会处于**本机演示模式**（链接只在你自己的浏览器里有效）。要让朋友真的能挂照片：
-
-1. 注册 <https://supabase.com>，新建一个项目（Region 建议选 Singapore 或 Tokyo，国内访问更快）
-2. 左侧 **SQL Editor** → New query → 把 [`supabase/setup.sql`](supabase/setup.sql) 全部粘贴进去 → Run
-3. 左侧 **Project Settings → API**，复制 `Project URL` 和 `anon public` key
-4. 填进 [`js/config.js`](js/config.js)：
-   ```js
-   export const SUPABASE_URL = 'https://xxxx.supabase.co';
-   export const SUPABASE_ANON_KEY = 'eyJhbGciOi...';
+1. **域名解析**：把你的域名（比如 `tree.example.com`）的 A 记录解析到服务器的公网 IP。
+2. **放行端口**：轻量服务器控制台 → 防火墙，添加规则放行 TCP **80** 和 **443**（申请 HTTPS 证书要用）。
+3. **登录服务器**（控制台「登录」按钮，或 SSH），执行：
+   ```bash
+   sudo -i
+   curl -fsSL https://raw.githubusercontent.com/Duankejingxi/Christmas-tree/claude/christmas-tree-photo-gallery-lrv14a/server/deploy.sh -o deploy.sh
+   bash deploy.sh tree.example.com        # 换成你的域名
    ```
-5. 提交推送，等 Pages 更新即可
+4. 脚本跑完后，浏览器打开 `https://你的域名` 就能用了。
 
-说明：
-- anon key 本来就是给前端用的公开密钥，放在代码里没问题；权限由 `setup.sql` 限制为「只能读、只能新增，不能改、不能删」，每棵树最多 10 张照片由数据库保证
-- 照片上传前会压缩到 1600px 以内，单张上限 3MB
-- Supabase 免费项目一周没人访问会自动暂停，在控制台点一下恢复即可
+之后更新网站：登录服务器再执行一次 `bash /opt/christmas-tree/server/deploy.sh 你的域名`。
+
+- 数据都在 `/var/lib/christmas-tree`（`db.json` 是树和照片记录，`photos/` 是照片文件），备份这个目录即可。
+- 后端日志：`journalctl -u christmas-api -f`；HTTPS 日志：`journalctl -u caddy -f`。
+- 服务器端限制：每人每小时最多 40 次传照片、30 次建树；单张照片最大 3MB；朋友昵称在每棵树内不能重复。
 
 ## 本地预览
 
 ```bash
-python3 -m http.server 8000
-# http://localhost:8000          正常打开
-# http://localhost:8000/?demo    跳过表单直接看效果
+# 只看界面（本机演示模式，把 js/config.js 里的 API_URL 改成 null）
+# 完整功能（带后端，一个命令同时提供网页和接口）：
+PORT=8000 node server/server.js   # 然后打开 http://localhost:8000
 ```
 
 ## 技术
 
-Three.js（自定义粒子着色器 + Bloom）· WebAudio（实时合成八音盒）· Supabase（可选）。
+Three.js（自定义粒子着色器 + Bloom）· WebAudio（实时合成）· 一个零依赖的 Node 后端（`server/server.js`）+ Caddy 自动 HTTPS。
 所有依赖都放在仓库里（`lib/`、`assets/`），不依赖国外 CDN。
