@@ -24,31 +24,33 @@
 - 弹窗点 × 收起后，会飞到右上角变成一个发光的按钮，随时可以再点开
 - 做好之后：底部「加照片」可以继续往自己的树上加（你自己最多 10 张），「重新种」可以再种一棵（原来的树会保留）
 
-## 部署到腾讯云 EdgeOne Pages
+## 部署到腾讯云 EdgeOne Pages（只做转发，不需要 KV）
 
-网页是静态文件，后端是 `functions/api/index.js`（EdgeOne Pages 云函数），照片和记录存在 EdgeOne **KV**。
-核心步骤：① 用 GitHub 仓库新建 Pages 项目 → ② 开通并绑定 KV，变量名必须是 `xmas_kv` → ③ 重新部署 → ④ 打开 `/api?op=health` 检查 → ⑤ 绑定自己的域名。
+数据存在 Supabase（见下一节）。国内连不上 `supabase.co`，所以网页和 `functions/api/index.js`（EdgeOne 云函数）部署在你自己的域名下：浏览器只访问你的域名，由云函数替它去访问 Supabase。
 
-- 项目设置：框架预设选「其他 / Other」，构建命令留空（或 `npm run build`），输出目录 `.`
-- KV 绑定变量名：`xmas_kv`（写错了的话，打开 `https://域名/api?op=health` 会显示 `"kv":false`）
-- 检查：`https://你的域名/api?op=health` 返回 `{"ok":true,"kv":true}` 就说明后端和存储都通了
+1. 在 EdgeOne Pages 新建项目，导入这个 GitHub 仓库和分支；框架预设选「其他」，构建命令留空（或 `npm run build`），输出目录 `.`；加速区域选「全球可用区（不含中国大陆）」（用域名不需要备案）
+2. 部署成功后，打开 `https://你的域名/api?p=%2Frest%2Fv1%2Ftrees%3Fselect%3Did%26limit%3D1`，看到 `[...]`（一个 JSON 列表）就说明转发通了
+3. 绑定自己的域名（域名管理 → 添加域名，按提示加一条 CNAME）
 
-## 后端规则（functions/api/index.js）
+转发函数只放行 `trees`、`photos` 两张表和 `photos` 存储桶的读写，其他路径一律拒绝。
 
-- 主人最多 10 张照片（需要建树时生成、只保存在主人浏览器里的密钥）；朋友每人一张，人数不限（安全上限 500）
-- 朋友昵称在每棵树内不能重复，也不能和主人同名（不区分大小写、忽略首尾空格）
-- 照片上传前压缩到 1280px；服务器切成每块 ≤ 60000 字符存进 KV，不依赖 KV 的大值支持
-- 上传带 `cid`，重试不会重复保存
+## 数据库（Supabase，免费）
+
+1. 注册 <https://supabase.com>，新建项目
+2. SQL Editor 里粘贴运行 [`supabase/setup.sql`](supabase/setup.sql)
+3. 把项目地址和 anon 公开密钥填进 `functions/api/index.js` 顶部的 `UPSTREAM` 和 `ANON_KEY`
+
+规则（由数据库保证）：主人最多 10 张（需要建树时生成、只保存在主人浏览器里的密钥）；朋友每人一张，人数不限（安全上限 500）；朋友昵称在每棵树内不能重复，也不能和主人同名。
 
 ## 本地预览
 
 ```bash
 node server/dev.js        # 然后打开 http://localhost:8000
 ```
-`server/dev.js` 提供网页，并用同一份 `functions/api/index.js` 处理 `/api`；KV 用本地文件模拟，且故意限制单个值 ≤ 128KB。
+`server/dev.js` 提供网页，并用同一份 `functions/api/index.js` 处理 `/api`（会真的访问 Supabase）。
 只想看界面、不连后端：把 `js/config.js` 里的 `API_URL` 改成 `null`（本机演示模式）。
 
 ## 技术
 
-Three.js（自定义粒子着色器 + Bloom）· WebAudio（实时合成）· EdgeOne Pages 云函数 + KV。
+Three.js（自定义粒子着色器 + Bloom）· WebAudio（实时合成）· EdgeOne Pages 云函数（转发）+ Supabase。
 所有依赖都放在仓库里（`lib/`、`assets/`），不依赖国外 CDN。
